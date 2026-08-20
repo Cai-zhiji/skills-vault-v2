@@ -1,0 +1,190 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SOURCE_PATH="${BASH_SOURCE[0]}"
+while [[ -h "$SOURCE_PATH" ]]; do
+  SOURCE_DIR="$(cd -P "$(dirname "$SOURCE_PATH")" && pwd)"
+  SOURCE_PATH="$(readlink "$SOURCE_PATH")"
+  [[ "$SOURCE_PATH" = /* ]] || SOURCE_PATH="$SOURCE_DIR/$SOURCE_PATH"
+done
+PROJECT_ROOT="$(cd -P "$(dirname "$SOURCE_PATH")/.." && pwd)"
+VAULT_DATA_ROOT="${SKILLS_VAULT_ROOT:-$PROJECT_ROOT}"
+RUN_DIR="$VAULT_DATA_ROOT/.vault/run"
+LOG_DIR="$VAULT_DATA_ROOT/.vault/logs"
+PID_FILE="$RUN_DIR/vault-ui.pid"
+PORT_FILE="$RUN_DIR/vault-ui.port"
+LOG_FILE="$LOG_DIR/vault-ui.log"
+SERVER_SCRIPT="$PROJECT_ROOT/server/http_server.py"
+
+mkdir_runtime_dirs() {
+  mkdir -p "$RUN_DIR" "$LOG_DIR"
+}
+
+read_pid() {
+  [[ -f "$PID_FILE" ]] || return 1
+  local pid
+  pid="$(tr -d '[:space:]' < "$PID_FILE")"
+  [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+  printf '%s\n' "$pid"
+}
+
+process_is_running() {
+  local pid="${1:-}"
+  [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null
+}
+
+clear_stale_pid() {
+  local pid
+  pid="$(read_pid 2>/dev/null || true)"
+  if [[ -n "$pid" ]] && ! process_is_running "$pid"; then
+    rm -f "$PID_FILE"
+    rm -f "$PORT_FILE"
+  fi
+}
+
+start_server() {
+  mkdir_runtime_dirs
+  clear_stale_pid
+
+  local pid
+  pid="$(read_pid 2>/dev/null || true)"
+  if [[ -n "$pid" ]] && process_is_running "$pid"; then
+    echo "Skills Vault 已在运行（PID ${pid}）。"
+    return 0
+  fi
+
+  local -a args=(--vault-root "$VAULT_DATA_ROOT")
+  if [[ -n "${SKILLS_VAULT_PORT:-}" ]]; then
+    args+=(--port "$SKILLS_VAULT_PORT")
+  fi
+  nohup python3 "$SERVER_SCRIPT" "${args[@]}" "$@" >> "$LOG_FILE" 2>&1 &
+  pid=$!
+  printf '%s\n' "$pid" > "$PID_FILE"
+  printf '%s\n' "${SKILLS_VAULT_PORT:-8765}" > "$PORT_FILE"
+  sleep 0.3
+
+  if ! process_is_running "$pid"; then
+    rm -f "$PID_FILE"
+    rm -f "$PORT_FILE"
+    echo "Skills Vault 启动失败，最近日志：" >&2
+    tail -n 30 "$LOG_FILE" >&2 || true
+    return 1
+  fi
+  echo "Skills Vault 已启动（PID ${pid}）。"
+  echo "日志：$LOG_FILE"
+}
+
+stop_server() {
+  mkdir_runtime_dirs
+  local pid
+  pid="$(read_pid 2>/dev/null || true)"
+  if [[ -z "$pid" ]]; then
+    echo "Skills Vault 当前没有运行记录。"
+    return 0
+  fi
+  if ! process_is_running "$pid"; then
+    rm -f "$PID_FILE"
+    rm -f "$PORT_FILE"
+    echo "Skills Vault 已停止（清理过期 PID）。"
+    return 0
+  fi
+
+  kill "$pid"
+  for _ in {1..50}; do
+    if ! process_is_running "$pid"; then
+      rm -f "$PID_FILE"
+      rm -f "$PORT_FILE"
+      echo "Skills Vault 已停止。"
+      return 0
+    fi
+    sleep 0.1
+  done
+
+  echo "服务未在 5 秒内退出，发送强制停止信号。" >&2
+  kill -KILL "$pid" 2>/dev/null || true
+  rm -f "$PID_FILE"
+  rm -f "$PORT_FILE"
+  echo "Skills Vault 已停止。"
+}
+
+status_server() {
+  clear_stale_pid
+  local pid
+  pid="$(read_pid 2>/dev/null || true)"
+  if [[ -z "$pid" ]] || ! process_is_running "$pid"; then
+    echo "Skills Vault 未运行。"
+    return 1
+  fi
+
+  local port="${SKILLS_VAULT_PORT:-8765}"
+  if [[ -f "$PORT_FILE" ]]; then
+    port="$(tr -d '[:space:]' < "$PORT_FILE")"
+  fi
+  if command -v curl >/dev/null 2>&1 && curl -fsS "http://127.0.0.1:$port/api/health" >/dev/null 2>&1; then
+    echo "Skills Vault 正在运行（PID ${pid}，端口 ${port}，健康检查通过）。"
+  else
+    echo "Skills Vault 进程正在运行（PID ${pid}，端口 ${port}，健康检查未通过）。"
+  fi
+}
+
+show_logs() {
+  mkdir_runtime_dirs
+  if [[ "${1:-}" == "-f" || "${1:-}" == "--follow" ]]; then
+    tail -f "$LOG_FILE"
+    return 0
+  fi
+  tail -n "${1:-80}" "$LOG_FILE" 2>/dev/null || echo "暂无日志。"
+}
+
+install_command() {
+  local target_dir="${SKILLS_COMMAND_DIR:-}"
+  if [[ -z "$target_dir" ]]; then
+    for candidate in /usr/local/bin /opt/homebrew/bin "$HOME/.local/bin"; do
+      if [[ -d "$candidate" && -w "$candidate" ]]; then
+        target_dir="$candidate"
+        break
+      fi
+    done
+  fi
+  if [[ -z "$target_dir" ]]; then
+    echo "没有找到可写入且在 PATH 中的命令目录，请设置 SKILLS_COMMAND_DIR。" >&2
+    return 1
+  fi
+  local target="$target_dir/skills"
+  mkdir -p "$target_dir"
+  if [[ -e "$target" && ! -L "$target" ]]; then
+    echo "拒绝覆盖已有文件：$target" >&2
+    return 1
+  fi
+  ln -sfn "$PROJECT_ROOT/scripts/skills" "$target"
+  echo "已安装命令：$target"
+  echo "现在可以使用：skills start / stop / restart / status / logs"
+}
+
+usage() {
+  cat <<'EOF'
+用法：skills <命令>
+
+命令：
+  start [参数]    后台启动本地服务
+  stop            停止本地服务
+  restart [参数]  重启本地服务
+  status          查看进程和健康状态
+  logs [行数]     查看最近日志，默认 80 行
+  logs -f         持续跟踪日志
+  install         安装为全局 skills 命令
+EOF
+}
+
+command="${1:-}"
+shift || true
+case "$command" in
+  start) start_server "$@" ;;
+  stop) stop_server "$@" ;;
+  restart) stop_server; start_server "$@" ;;
+  status) status_server ;;
+  logs) show_logs "$@" ;;
+  install) install_command ;;
+  -h|--help|help|"") usage ;;
+  *) echo "未知命令：$command" >&2; usage >&2; exit 2 ;;
+esac

@@ -10,6 +10,24 @@
 ./scripts/vault-ui
 ```
 
+也可以安装短命令，之后用后台方式管理服务：
+
+```bash
+./scripts/skills install
+skills start
+skills status
+skills logs
+skills stop
+```
+
+`skills restart` 可重启服务，`skills logs -f` 可持续跟踪日志。PID 保存在 `.vault/run/`，运行日志保存在 `.vault/logs/`，这些运行文件不会进入 Git。
+
+如果系统没有自动找到命令，可显式指定安装目录：
+
+```bash
+SKILLS_COMMAND_DIR=/opt/homebrew/bin ./scripts/skills install
+```
+
 首次运行会自动安装前端依赖并构建网站，然后在 `http://127.0.0.1:8765` 启动本地服务。项目目录本身就是默认数据工作区；测试或诊断其他 Vault 时仍可显式指定：
 
 ```bash
