@@ -72,6 +72,93 @@ def _guide_path(vault: Vault, skill_id: str) -> Path:
     return vault.root / "docs" / "skill-guides" / f"{skill_id.replace('/', '--')}.md"
 
 
+def skill_guide_template(skill: Dict[str, Any]) -> str:
+    """Return the canonical eight-section guide format for a personal Skill."""
+    name = str(skill.get("name") or "Skill")
+    description = str(skill.get("summary_zh") or skill.get("description") or "填写这个 Skill 要解决的问题。")
+    return "\n".join(
+        [
+            f"# {name} 使用说明",
+            "",
+            "## 1. 定位",
+            "",
+            description,
+            "",
+            "## 2. 何时使用",
+            "",
+            "- 描述触发这个 Skill 的任务、场景或关键词。",
+            "",
+            "## 3. 不适用",
+            "",
+            "- 写明应改用其他方法或 Skill 的情况。",
+            "",
+            "## 4. 前置条件",
+            "",
+            "- 列出必须准备的文件、权限、工具或上下文。",
+            "",
+            "## 5. 标准流程",
+            "",
+            "1. 写出从输入到完成的关键步骤。",
+            "2. 说明每一步需要检查的结果。",
+            "",
+            "## 6. 输出与验收",
+            "",
+            "- 说明成功后应该交付什么，以及如何确认结果正确。",
+            "",
+            "## 7. 风险与边界",
+            "",
+            "- 写明可能修改的数据、需要确认的动作和禁止自动执行的内容。",
+            "",
+            "## 8. 维护记录",
+            "",
+            "- 记录重要的使用约定、已知限制或后续改进方向。",
+            "",
+        ]
+    )
+
+
+def save_skill_guide(vault: Vault, skill_id: str, markdown: str) -> Dict[str, Any]:
+    entries = [item for item in vault.catalog().get("skills", []) if item.get("id") == skill_id]
+    if not entries:
+        raise ServiceError("not_found", "Skill not found")
+    if entries[0].get("source_id") != "my":
+        raise ServiceError("guide_not_personal", "说明文档只能在个人或派生 Skill 上编辑")
+    content = str(markdown).strip()
+    if len(content) < 16:
+        raise ServiceError("invalid_guide", "说明文档至少需要 16 个字符")
+    if len(content) > 100_000:
+        raise ServiceError("guide_too_large", "说明文档不能超过 100,000 个字符")
+    path = _guide_path(vault, skill_id)
+    created = not path.exists()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(path.parent))
+    try:
+        with open(fd, "w", encoding="utf-8", closefd=True) as handle:
+            handle.write(content + "\n")
+        Path(tmp_name).replace(path)
+    finally:
+        Path(tmp_name).unlink(missing_ok=True)
+    tx = transaction_id("guide")
+    _record_transaction(
+        vault,
+        tx,
+        {
+            "operation": "skill.guide.save",
+            "status": "complete",
+            "skill_id": skill_id,
+            "path": str(path.relative_to(vault.root)),
+            "created": created,
+        },
+    )
+    return {
+        "transaction_id": tx,
+        "status": "saved",
+        "skill_id": skill_id,
+        "path": str(path.relative_to(vault.root)),
+        "created": created,
+    }
+
+
 def _validate_external_source(source_id: str, source_url: str) -> tuple[str, str]:
     normalized_id = str(source_id).strip().lower()
     normalized_url = str(source_url).strip()

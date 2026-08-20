@@ -51,6 +51,7 @@ import { selectionKey } from "@/lib/selection"
 import { cn } from "@/lib/utils"
 import type {
   ApplyResponse,
+  CreateOriginalResponse,
   InstallPreview,
   ScanResult,
   SelectionMode,
@@ -242,7 +243,7 @@ export function SkillsPage() {
       "创建原创 Skill",
       "创建目录与 SKILL.md，并重建 Catalog",
       () =>
-        api.post<ApplyResponse>("/api/skills/original", {
+        api.post<CreateOriginalResponse>("/api/skills/original", {
           name: newName.trim(),
           description: newDescription.trim(),
         }),
@@ -253,6 +254,7 @@ export function SkillsPage() {
       setNewName("")
       setNewDescription("")
       await refreshAll()
+      setSelectedSkillId(result.skill_id)
     }
   }
 

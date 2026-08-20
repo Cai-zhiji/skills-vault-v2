@@ -549,12 +549,37 @@ code {
 }
 
 .detail-sheet-header {
+  flex: 0 0 auto;
   border-bottom: 1px solid var(--border);
   background:
     linear-gradient(90deg, rgba(30, 41, 51, 0.04) 1px, transparent 1px),
     var(--bench);
   background-size: 18px 18px;
   padding: 22px 20px;
+}
+
+.detail-sheet-description {
+  display: -webkit-box;
+  max-width: 48rem;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.detail-tabs {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+
+.detail-tab-panel {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.detail-scroll-area {
+  height: 100%;
+  min-height: 0;
 }
 
 .detail-list {
@@ -609,11 +634,87 @@ code {
 }
 
 .detail-actions {
+  flex: 0 0 auto;
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   border-top: 1px solid var(--border);
   padding: 12px 16px;
+}
+
+.guide-empty {
+  display: grid;
+  gap: 12px;
+  border: 1px dashed var(--border);
+  background: var(--bench);
+  padding: 20px;
+  color: var(--muted-foreground);
+}
+
+.guide-empty svg {
+  color: var(--copper);
+}
+
+.guide-empty h3 {
+  margin: 0;
+  color: var(--graphite);
+  font-family: "Barlow Condensed", "Noto Sans SC", sans-serif;
+  font-size: 20px;
+}
+
+.guide-empty p {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.guide-empty .group\/button {
+  justify-self: start;
+}
+
+.guide-editor-dialog {
+  display: flex;
+  width: min(760px, calc(100vw - 2rem));
+  max-width: none;
+  max-height: calc(100vh - 2rem);
+  flex-direction: column;
+  gap: 0;
+  overflow: hidden;
+  padding: 0;
+}
+
+.guide-editor-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  background: var(--bench);
+  padding: 9px 20px;
+  color: var(--muted-foreground);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10px;
+}
+
+.guide-editor-meta span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.guide-editor-textarea {
+  height: 100%;
+  min-height: 320px;
+  resize: none;
+  border-color: var(--border);
+  background: var(--surface);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.guide-editor-footer {
+  flex: 0 0 auto;
 }
 
 .technical-json {

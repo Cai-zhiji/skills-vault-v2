@@ -31,6 +31,7 @@ from skills_vault.services import (ServiceError, activate_profiles, compare_skil
                                    save_managed_selection, save_profile, source_policy_apply,
                                    source_policy_preview, source_delete_apply, source_delete_preview,
                                    source_review,
+                                   save_skill_guide, skill_guide_template,
                                    skills_cli_source_apply,
                                    skills_cli_source_preview, update_apply, update_preview)  # noqa: E402
 
@@ -257,6 +258,12 @@ class Handler(BaseHTTPRequestHandler):
             if self.path == "/api/backups/restore/apply":
                 self.send_json(restore_apply(self.vault, body.get("preview_token", "")))
                 return
+            if self.path.startswith("/api/skills/") and self.path.endswith("/guide"):
+                skill_id = urllib.parse.unquote(
+                    self.path.removeprefix("/api/skills/").removesuffix("/guide").rstrip("/")
+                )
+                self.send_json(save_skill_guide(self.vault, skill_id, str(body.get("markdown", ""))))
+                return
             if self.path == "/api/skills/original":
                 self.send_json(create_original(self.vault, body.get("name", ""), body.get("description", "")), HTTPStatus.CREATED)
                 return
@@ -370,15 +377,31 @@ class Handler(BaseHTTPRequestHandler):
             raise ServiceError("not_found", "Skill not found")
         safe_name = skill_id.replace("/", "--")
         guide_path = VAULT_ROOT / "docs" / "skill-guides" / f"{safe_name}.md"
-        if guide_path.exists() and guide_path.is_file():
-            return {"skill_id": skill_id, "exists": True, "path": str(guide_path.relative_to(VAULT_ROOT)), "markdown": guide_path.read_text(encoding="utf-8")}
         entry = matches[0]
+        template = skill_guide_template(entry)
+        editable = entry.get("source_id") == "my"
+        if guide_path.exists() and guide_path.is_file():
+            return {
+                "skill_id": skill_id,
+                "exists": True,
+                "editable": editable,
+                "path": str(guide_path.relative_to(VAULT_ROOT)),
+                "markdown": guide_path.read_text(encoding="utf-8"),
+                "template": template,
+            }
         fallback = "\n".join([
             f"# {entry.get('name')}",
             "",
-            f"> 此 Skill 的说明文档尚未创建。请添加 `{safe_name}.md` 后再查看完整内容。",
+            "> 此 Skill 的说明文档尚未创建。",
         ])
-        return {"skill_id": skill_id, "exists": False, "path": str(guide_path.relative_to(VAULT_ROOT)), "markdown": fallback}
+        return {
+            "skill_id": skill_id,
+            "exists": False,
+            "editable": editable,
+            "path": str(guide_path.relative_to(VAULT_ROOT)),
+            "markdown": fallback,
+            "template": template,
+        }
 
     def profiles_payload(self) -> Dict[str, Any]:
         return profiles_payload(self.vault)

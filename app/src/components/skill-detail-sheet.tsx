@@ -3,8 +3,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   Braces,
   CopyPlus,
+  FilePenLine,
   FileText,
   GitBranch,
+  RotateCcw,
   ShieldAlert,
 } from "lucide-react"
 import ReactMarkdown from "react-markdown"
@@ -22,6 +24,7 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { Textarea } from "@/components/ui/textarea"
 import {
   Sheet,
   SheetContent,
@@ -35,6 +38,7 @@ import { formatDate, shortHash } from "@/lib/format"
 import { useOperation } from "@/lib/operation-context"
 import type {
   ApplyResponse,
+  SaveSkillGuideResponse,
   SkillDetailPayload,
   SkillGuidePayload,
 } from "@/types/api"
@@ -57,6 +61,8 @@ export function SkillDetailSheet({
 }) {
   const [deriveOpen, setDeriveOpen] = useState(false)
   const [derivedName, setDerivedName] = useState("")
+  const [guideEditorOpen, setGuideEditorOpen] = useState(false)
+  const [guideDraft, setGuideDraft] = useState("")
   const queryClient = useQueryClient()
   const { runOperation } = useOperation()
   const detailQuery = useQuery({
@@ -96,10 +102,38 @@ export function SkillDetailSheet({
     }
   }
 
+  const openGuideEditor = () => {
+    setGuideDraft(
+      guideQuery.data?.exists
+        ? guideQuery.data.markdown
+        : guideQuery.data?.template || "",
+    )
+    setGuideEditorOpen(true)
+  }
+
+  const saveGuide = async () => {
+    if (!skillId || !guideDraft.trim()) return
+    const result = await runOperation(
+      "skill.guide.save",
+      "保存说明文档",
+      "写入个人 Skill 的标准说明文档并记录事务",
+      () =>
+        api.post<SaveSkillGuideResponse>(
+          `/api/skills/${encodeURIComponent(skillId)}/guide`,
+          { markdown: guideDraft },
+        ),
+      () => "说明文档已保存",
+    )
+    if (result) {
+      setGuideEditorOpen(false)
+      await queryClient.invalidateQueries({ queryKey: ["skill-guide", skillId] })
+    }
+  }
+
   return (
     <>
       <Sheet open={Boolean(skillId)} onOpenChange={onOpenChange}>
-        <SheetContent className="w-full gap-0 p-0 sm:max-w-[560px]">
+        <SheetContent className="w-full gap-0 overflow-hidden p-0 sm:max-w-[600px]">
           {skill ? (
             <>
               <SheetHeader className="detail-sheet-header">
@@ -118,19 +152,20 @@ export function SkillDetailSheet({
                 <SheetTitle className="mt-4 font-label text-3xl tracking-wide">
                   {skill.name}
                 </SheetTitle>
-                <SheetDescription className="mt-2 leading-6">
+                <SheetDescription className="detail-sheet-description mt-2 leading-6">
                   {skill.summary_zh || skill.description || "暂无说明"}
                 </SheetDescription>
               </SheetHeader>
 
-              <Tabs defaultValue="overview" className="min-h-0 flex-1">
+              <Tabs defaultValue="overview" className="detail-tabs">
                 <TabsList className="mx-4 mt-4 grid w-[calc(100%-2rem)] grid-cols-3">
                   <TabsTrigger value="overview">概览</TabsTrigger>
                   <TabsTrigger value="guide">说明文档</TabsTrigger>
                   <TabsTrigger value="technical">技术信息</TabsTrigger>
                 </TabsList>
-                <ScrollArea className="h-[calc(100vh-210px)]">
-                  <TabsContent value="overview" className="m-0 p-4">
+                <TabsContent value="overview" className="detail-tab-panel">
+                  <ScrollArea className="detail-scroll-area">
+                    <div className="p-4">
                     <dl className="detail-list">
                       <DetailRow label="调用方式">
                         <div className="flex flex-wrap gap-2">
@@ -162,6 +197,15 @@ export function SkillDetailSheet({
                       </DetailRow>
                     </dl>
 
+                    {skill.description && (
+                      <section className="detail-section">
+                        <h3>原始介绍</h3>
+                        <p className="mt-3 text-xs leading-6 text-muted-foreground">
+                          {skill.description}
+                        </p>
+                      </section>
+                    )}
+
                     {skill.recommended_for.length > 0 && (
                       <section className="detail-section">
                         <h3>适合场景</h3>
@@ -187,9 +231,13 @@ export function SkillDetailSheet({
                         </div>
                       </section>
                     )}
-                  </TabsContent>
+                    </div>
+                  </ScrollArea>
+                </TabsContent>
 
-                  <TabsContent value="guide" className="m-0 p-5">
+                <TabsContent value="guide" className="detail-tab-panel">
+                  <ScrollArea className="detail-scroll-area">
+                    <div className="p-5">
                     <div className="mb-4 flex items-center justify-between gap-3">
                       <div>
                         <p className="eyebrow">MARKDOWN GUIDE</p>
@@ -199,14 +247,39 @@ export function SkillDetailSheet({
                       </div>
                       <FileText className="size-4 text-muted-foreground" />
                     </div>
-                    <article className="markdown-body">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                        {guideQuery.data?.markdown || "正在读取说明文档…"}
-                      </ReactMarkdown>
-                    </article>
-                  </TabsContent>
+                    {guideQuery.isLoading ? (
+                      <p className="text-sm text-muted-foreground">正在读取说明文档…</p>
+                    ) : guideQuery.data?.exists ? (
+                      <article className="markdown-body">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {guideQuery.data.markdown}
+                        </ReactMarkdown>
+                      </article>
+                    ) : (
+                      <section className="guide-empty">
+                        <FilePenLine className="size-5" />
+                        <div>
+                          <h3>还没有说明文档</h3>
+                          <p>
+                            {guideQuery.data?.editable
+                              ? "使用标准 8 节模板，把这个个人 Skill 的用途、流程和边界写清楚。"
+                              : "这是上游 Skill；如需自定义说明，请先派生到 my-skills。"}
+                          </p>
+                        </div>
+                        {guideQuery.data?.editable && (
+                          <Button onClick={openGuideEditor}>
+                            <FilePenLine /> 添加说明文档
+                          </Button>
+                        )}
+                      </section>
+                    )}
+                    </div>
+                  </ScrollArea>
+                </TabsContent>
 
-                  <TabsContent value="technical" className="m-0 p-4">
+                <TabsContent value="technical" className="detail-tab-panel">
+                  <ScrollArea className="detail-scroll-area">
+                    <div className="p-4">
                     <dl className="detail-list">
                       <DetailRow label="路径">
                         <code className="break-all">{skill.path}</code>
@@ -242,11 +315,22 @@ export function SkillDetailSheet({
                         )}
                       </pre>
                     </section>
-                  </TabsContent>
-                </ScrollArea>
+                    </div>
+                  </ScrollArea>
+                </TabsContent>
               </Tabs>
 
               <div className="detail-actions">
+                {skill.source_id === "my" && (
+                  <Button
+                    variant="outline"
+                    onClick={openGuideEditor}
+                    disabled={guideQuery.isLoading}
+                  >
+                    <FilePenLine />
+                    {guideQuery.data?.exists ? "编辑说明文档" : "添加说明文档"}
+                  </Button>
+                )}
                 {skill.source_id !== "my" && (
                   <Button variant="outline" onClick={() => setDeriveOpen(true)}>
                     <CopyPlus /> 派生到 my-skills
@@ -287,6 +371,47 @@ export function SkillDetailSheet({
             </Button>
             <Button onClick={() => void derive()} disabled={!derivedName.trim()}>
               <GitBranch /> 创建派生
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={guideEditorOpen} onOpenChange={setGuideEditorOpen}>
+        <DialogContent className="guide-editor-dialog">
+          <DialogHeader className="p-5 pb-3">
+            <DialogTitle className="font-label text-2xl">编写说明文档</DialogTitle>
+            <DialogDescription>
+              说明会保存到当前 Vault 的 `docs/skill-guides`，不修改 SKILL.md 或上游仓库。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="guide-editor-meta">
+            <span>STANDARD GUIDE / 8 SECTIONS</span>
+            <span>{guideQuery.data?.path || "准备模板…"}</span>
+          </div>
+          <div className="min-h-0 flex-1 px-5 pb-5">
+            <label className="sr-only" htmlFor="skill-guide-markdown">
+              Skill 说明文档 Markdown
+            </label>
+            <Textarea
+              id="skill-guide-markdown"
+              className="guide-editor-textarea"
+              value={guideDraft}
+              onChange={(event) => setGuideDraft(event.target.value)}
+              placeholder="正在准备说明文档模板…"
+            />
+          </div>
+          <DialogFooter className="guide-editor-footer">
+            <Button
+              variant="ghost"
+              onClick={() => setGuideDraft(guideQuery.data?.template || "")}
+            >
+              <RotateCcw /> 恢复标准模板
+            </Button>
+            <Button variant="outline" onClick={() => setGuideEditorOpen(false)}>
+              取消
+            </Button>
+            <Button onClick={() => void saveGuide()} disabled={!guideDraft.trim()}>
+              <FileText /> 保存说明
             </Button>
           </DialogFooter>
         </DialogContent>

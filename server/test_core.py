@@ -39,6 +39,8 @@ from skills_vault.services import (
     managed_selection_payload,
     personal_catalog_state,
     scan_catalog,
+    save_skill_guide,
+    skill_guide_template,
     save_managed_selection,
     source_policy_apply,
     source_policy_preview,
@@ -155,6 +157,21 @@ class V2CatalogAndUpdateTests(unittest.TestCase):
             self.assertEqual(statuses["dirty"], "blocked-dirty")
             token = vault.state_dir / "tokens" / f"{preview['preview_token']}.json"
             token.unlink()
+
+    def test_personal_skill_guide_uses_template_and_records_save(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            vault = self.make_personal_vault(root)
+            catalog = vault.scan()
+            skill = next(item for item in catalog["skills"] if item["id"] == "my/demo")
+            template = skill_guide_template(skill)
+            self.assertIn("## 8. 维护记录", template)
+            result = save_skill_guide(vault, "my/demo", template)
+            guide = root / "docs" / "skill-guides" / "my--demo.md"
+            self.assertTrue(result["created"])
+            self.assertEqual(guide.read_text(encoding="utf-8"), template)
+            transaction = vault.state_dir / "transactions" / f"{result['transaction_id']}.json"
+            self.assertEqual(load_data(transaction)["operation"], "skill.guide.save")
 
 
 @unittest.skipUnless(

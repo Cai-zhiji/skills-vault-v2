@@ -19,6 +19,7 @@ SKILLS_VAULT_ROOT=/absolute/path/to/skills-vault ./scripts/vault-ui --port 9000
 ## 网站能力
 
 - **Skills**：浏览、搜索、按来源和状态筛选，查看说明与技术信息，保存 Codex / Claude Code 启用范围，并通过 Preview 安全同步。
+- **个人说明文档**：为 `my-skills` 中的原创或派生 Skill 添加、编辑标准 8 节 Markdown 说明；文档保存于数据工作区的 `docs/skill-guides/`，不修改 `SKILL.md` 或上游仓库。
 - **来源**：查看版本、信任状态和本地改动；更新时自动隔离脏来源，不覆盖用户文件。
 - **记录**：追踪事务、更新报告和备份，并在恢复前生成一次性 Preview。
 - **同步轨**：持续展示本地 Skills、Catalog 和两个 Agent 平台之间的真实状态。
@@ -63,6 +64,7 @@ PYTHONPATH=server python3 -m unittest discover -s server -p 'test_*.py' -v
 - 批量或破坏性操作采用 `preview → apply → transaction → recovery`。
 - 来源存在本地改动时不会被自动清理、暂存、提交或覆盖。
 - v2 复用指定的数据工作区，不复制或迁移用户 Skills。
+- 个人说明文档是独立的受管 Markdown 文件，每次保存都会产生事务记录。
 - 项目只使用本地 Git，不自动推送。
 
 产品规格见 [`docs/specs/skills-vault-v2.md`](docs/specs/skills-vault-v2.md)，视觉方向见 [`design/ui/direction.md`](design/ui/direction.md)。

@@ -115,8 +115,23 @@ export interface SkillDetailPayload extends SkillEntry {
 export interface SkillGuidePayload {
   skill_id: string
   exists: boolean
+  editable: boolean
   path: string
   markdown: string
+  template: string
+}
+
+export interface SaveSkillGuideResponse {
+  transaction_id: string
+  status: string
+  skill_id: string
+  path: string
+  created: boolean
+}
+
+export interface CreateOriginalResponse extends ApplyResponse {
+  skill_id: string
+  path: string
 }
 
 export interface SelectionPayload {
