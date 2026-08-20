@@ -1,0 +1,7 @@
+interface:
+  display_name: "Skill 入库与说明"
+  short_description: "为 v2 引入新 Skill、生成中文说明并登记注释"
+  default_prompt: "使用 $skill-onboarding 把这个新 Skill 接入当前 v2 项目，完成说明文档、中文注释、Catalog 扫描和校验。"
+
+policy:
+  allow_implicit_invocation: true

@@ -25,8 +25,8 @@
       "review_status": "reviewed",
       "reviewed_at": "2026-08-13"
     },
-    "my/skill-guide-writer": {
-      "summary_zh": "把原始 SKILL.md 重写成结构清晰的中文功能说明文档。"
+    "my/skill-onboarding": {
+      "summary_zh": "引入新 Skill，生成中文说明与注释，并完成 Catalog 和网站校验。"
     },
     "mattpocock/implement": {
       "requires": [
@@ -39,6 +39,9 @@
     },
     "anthropic/algorithmic-art": {
       "summary_zh": "用 p5.js 和可复现随机性创作可交互的算法艺术。"
+    },
+    "anthropic/academy-guide": {
+      "summary_zh": "在回答 Claude 使用问题后，匹配 Claude Academy 中真正相关的课程、教程或用例。"
     },
     "mattpocock/ask-matt": {
       "summary_zh": "根据当前问题推荐合适的 Skill 或工作流。"
