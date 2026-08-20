@@ -6,30 +6,31 @@
 
 ## 当前进度
 
-- [x] 确认新项目目录可安全创建。
-- [x] 读取旧项目功能、Web 规格和生产接口现状。
-- [x] 选定 Wayfinder，并建立本地 Markdown 决策地图。
-- [x] 确认 React + shadcn/ui + Tailwind CSS 的前端方向。
-- [x] 建立第一版领域词汇、产品规格和视觉方向。
-- [x] 建立按功能域组织的项目骨架。
-- [ ] 逐张解决 Wayfinder 前沿决策票。
-- [ ] 确认运行时边界与旧数据迁移策略。
-- [ ] 在决策闭合后生成前后端脚手架。
+- [x] 完成 Wayfinder 决策地图，闭合首发范围、运行时、数据、安全、信息架构、API、测试与交付决定。
+- [x] 建立 React 19 + TypeScript + Vite 8 + shadcn/ui + Tailwind CSS 4 前端。
+- [x] 实现 Skills、来源、记录三个一级入口与全局命令面板。
+- [x] 实现同步轨、操作轨、详情 Sheet、Preview / Apply Dialog 和响应式布局。
+- [x] 建立 Python 本地 API / 静态服务，并通过可配置路径复用 v1 数据工作区。
+- [x] 实现个人 Skills Catalog 新鲜度检测和扫描重建。
+- [x] 修正来源更新边界：脏来源被单独阻塞，安全来源可继续更新。
+- [x] 补齐前端单测、类型检查、Lint、生产构建和后端单元测试。
+- [x] 在真实浏览器完成桌面端、390px 窄屏、键盘入口和控制台验收。
+- [x] 提供一键启动脚本与项目使用说明。
 
 ## 下一步
 
-1. 解决“定义 v2 首发产品边界”，锁定网页主流程与首发功能。
-2. 解决“选择运行时与进程边界”，决定 React 构建方式及本地服务形态。
-3. 解决“制定旧项目数据迁移方案”，明确复制、复用和重新生成的对象。
-4. 根据已闭合决定更新产品规格，再开始 `app/` 与 `server/` 脚手架。
+1. 日常直接运行 `./scripts/vault-ui` 使用网站。
+2. 在隔离的数据副本上扩展 Preview / Apply 的浏览器自动化覆盖，避免验收操作真实平台链接。
+3. 如果需要分发给其他设备，再增加 macOS 应用壳、后台启动或安装包；这些不属于当前本地首发范围。
 
 ## 关键约束 / 约定
 
 - 项目目录：`/Users/zivenjasek/Desktop/Projects/skills-vault-v2`。
-- 网站是主入口；CLI 是辅助入口。
-- 前端使用 React、shadcn/ui 与 Tailwind CSS；具体框架和构建器待决策。
-- 本地优先，不引入云端账户或远程数据库作为基础依赖。
-- 保留 preview → apply → transaction → recovery 的安全模型。
+- 网站是主入口；CLI 仅承担启动、诊断、自动化和应急维护。
+- 前端使用 React 19、Vite 8、React Router、TanStack Query、shadcn/ui 与 Tailwind CSS 4。
+- 后端使用 Python 标准库 HTTP 服务与现有 Skills Vault 领域服务，无额外运行时依赖。
+- 默认数据工作区为相邻的 `/Users/zivenjasek/Desktop/Projects/skills-vault`，可通过 `--vault-root` 或 `SKILLS_VAULT_ROOT` 替换。
+- v2 不复制用户数据；Catalog 和运行记录继续由被挂载的数据工作区管理。
+- 保留 `preview → apply → transaction → recovery` 安全模型。
 - 不自动删除、暂存、提交或覆盖来源仓库中的用户改动。
-- `app/` 与 `server/` 在框架决策前保持为空。
-- 仅初始化本地 Git，永不自动 push。
+- 本地 Git only，永不自动 push。

@@ -1,6 +1,6 @@
 # 选择运行时与进程边界
 
-- 状态：待决定
+- 状态：已决定
 - 类型：Research
 - 阻塞：无
 - 解锁：确定 API 与异步操作契约、确定本地交付与升级方式
@@ -31,4 +31,8 @@ React 前端、文件系统/Git 领域能力与本地 HTTP 服务应如何分进
 
 ## Resolution
 
-待研究票据完成。
+使用 Vite + React + TypeScript 构建 SPA，React Router 承担页面路由。Node.js 只用于开发与构建，不作为生产领域运行时。
+
+后端继续使用 Python 标准库本地 HTTP 服务，并迁入 v2 独立维护；生产模式由同一进程提供 `/api/*` 与 `app/dist` 静态文件。开发模式由 Vite 把 `/api` 代理到 Python 服务。
+
+领域代码与数据工作区分离：v2 服务代码位于新项目，`--vault-root` 或 `SKILLS_VAULT_ROOT` 指向实际 Vault 数据目录。

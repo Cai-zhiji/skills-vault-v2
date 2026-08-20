@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+APP_ROOT="$PROJECT_ROOT/app"
+VAULT_DATA_ROOT="${SKILLS_VAULT_ROOT:-$PROJECT_ROOT/../skills-vault}"
+
+if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
+  echo "Skills Vault v2 需要 Node.js 20+ 与 npm。" >&2
+  exit 1
+fi
+
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "Skills Vault v2 需要 Python 3.10+。" >&2
+  exit 1
+fi
+
+if [[ ! -d "$APP_ROOT/node_modules" ]]; then
+  echo "首次运行：安装前端依赖…"
+  npm --prefix "$APP_ROOT" ci
+fi
+
+if [[ ! -f "$APP_ROOT/dist/index.html" ]]; then
+  echo "首次运行：构建网站…"
+  npm --prefix "$APP_ROOT" run build
+fi
+
+SERVER_ARGS=(--vault-root "$VAULT_DATA_ROOT")
+if [[ -n "${SKILLS_VAULT_PORT:-}" ]]; then
+  SERVER_ARGS+=(--port "$SKILLS_VAULT_PORT")
+fi
+
+exec python3 "$PROJECT_ROOT/server/http_server.py" "${SERVER_ARGS[@]}" "$@"
