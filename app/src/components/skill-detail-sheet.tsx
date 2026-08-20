@@ -3,11 +3,13 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   Braces,
   CopyPlus,
+  FileDiff,
   FilePenLine,
   FileText,
   GitBranch,
   RotateCcw,
   ShieldAlert,
+  Trash2,
 } from "lucide-react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
@@ -55,9 +57,15 @@ function DetailRow({ label, children }: { label: string; children: React.ReactNo
 export function SkillDetailSheet({
   skillId,
   onOpenChange,
+  onDeletePreview,
+  onCompare,
+  canCompare,
 }: {
   skillId: string | null
   onOpenChange: (open: boolean) => void
+  onDeletePreview: (skill: SkillDetailPayload) => void
+  onCompare: (skill: SkillDetailPayload) => void
+  canCompare: boolean
 }) {
   const [deriveOpen, setDeriveOpen] = useState(false)
   const [derivedName, setDerivedName] = useState("")
@@ -331,6 +339,19 @@ export function SkillDetailSheet({
                     {guideQuery.data?.exists ? "编辑说明文档" : "添加说明文档"}
                   </Button>
                 )}
+                {canCompare && (
+                  <Button variant="outline" onClick={() => onCompare(skill)}>
+                    <FileDiff /> 比较冲突
+                  </Button>
+                )}
+                <Button
+                  variant="outline"
+                  className="border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                  onClick={() => onDeletePreview(skill)}
+                >
+                  <Trash2 />
+                  {skill.source_id === "my" ? "删除 Skill" : "移出目录"}
+                </Button>
                 {skill.source_id !== "my" && (
                   <Button variant="outline" onClick={() => setDeriveOpen(true)}>
                     <CopyPlus /> 派生到 my-skills

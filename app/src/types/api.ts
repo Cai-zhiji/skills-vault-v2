@@ -112,6 +112,40 @@ export interface SkillDetailPayload extends SkillEntry {
   origin_detail: Record<string, unknown> | null
 }
 
+export interface DeleteSkillPreview {
+  transaction_id: string
+  preview_token: string
+  skill_ids: string[]
+  items: Array<{
+    id: string
+    name: string
+    source_id: string
+    path: string
+    source_action: string
+    guide: string | null
+    annotation: boolean
+  }>
+  profiles: Array<Record<string, unknown>>
+  annotation_references: Array<Record<string, unknown>>
+  links: Array<Record<string, unknown>>
+  derivatives_retained: string[]
+  counts: {
+    skills: number
+    profiles: number
+    links: number
+    guides: number
+    annotations: number
+  }
+  notes: string[]
+}
+
+export interface CompareSkillsResponse {
+  left: SkillEntry
+  right: SkillEntry
+  diff: string[]
+  same_name: boolean
+}
+
 export interface SkillGuidePayload {
   skill_id: string
   exists: boolean

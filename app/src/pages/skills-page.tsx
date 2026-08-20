@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   ArrowRight,
   Boxes,
+  FileDiff,
   FilePlus2,
   Filter,
   RefreshCw,
@@ -43,6 +44,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { Textarea } from "@/components/ui/textarea"
 import { api } from "@/lib/api"
 import { truncate } from "@/lib/format"
@@ -51,7 +53,9 @@ import { selectionKey } from "@/lib/selection"
 import { cn } from "@/lib/utils"
 import type {
   ApplyResponse,
+  CompareSkillsResponse,
   CreateOriginalResponse,
+  DeleteSkillPreview,
   InstallPreview,
   ScanResult,
   SelectionMode,
@@ -75,6 +79,8 @@ export function SkillsPage() {
   const [selectedSkillId, setSelectedSkillId] = useState<string | null>(null)
   const [draft, setDraft] = useState<Record<string, SelectionMode>>({})
   const [installPreview, setInstallPreview] = useState<InstallPreview | null>(null)
+  const [deletePreview, setDeletePreview] = useState<DeleteSkillPreview | null>(null)
+  const [comparePair, setComparePair] = useState<{ left: string; right: string } | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
   const [newName, setNewName] = useState("")
   const [newDescription, setNewDescription] = useState("")
@@ -258,8 +264,61 @@ export function SkillsPage() {
     }
   }
 
+  const previewDelete = async (skill: SkillsPayload["skills"][number]) => {
+    const result = await runOperation(
+      "skill.delete.preview",
+      skill.source_id === "my" ? "预览删除 Skill" : "预览移出目录",
+      "计算归档、平台链接与关联配置的影响范围",
+      () =>
+        api.post<DeleteSkillPreview>("/api/skills/delete/preview", {
+          skill_ids: [skill.id],
+        }),
+      (value) =>
+        `Preview：${value.counts.skills} 个 Skill，${value.counts.links} 个平台链接受影响`,
+    )
+    if (result) setDeletePreview(result)
+  }
+
+  const applyDelete = async () => {
+    if (!deletePreview) return
+    const result = await runOperation(
+      "skill.delete.apply",
+      "处理 Skill",
+      "归档个人文件或隐藏上游条目，并清理受管引用",
+      () =>
+        api.post<ApplyResponse>("/api/skills/delete/apply", {
+          preview_token: deletePreview.preview_token,
+        }),
+      (value) => `Skill 已处理；事务 ${value.transaction_id}`,
+    )
+    if (result) {
+      setDeletePreview(null)
+      setSelectedSkillId(null)
+      await refreshAll()
+    }
+  }
+
+  const openCompare = (skill: SkillsPayload["skills"][number]) => {
+    const candidates = selectionQuery.data?.conflicts[skill.name.toLowerCase()] || []
+    const other = candidates.find((id) => id !== skill.id)
+    if (other) setComparePair({ left: skill.id, right: other })
+  }
+
+  const compareQuery = useQuery({
+    queryKey: ["compare-skills", comparePair?.left, comparePair?.right],
+    queryFn: () =>
+      api.get<CompareSkillsResponse>(
+        `/api/compare?left=${encodeURIComponent(comparePair?.left || "")}&right=${encodeURIComponent(comparePair?.right || "")}`,
+      ),
+    enabled: Boolean(comparePair),
+  })
+
   const catalogState = statusQuery.data?.catalog_state
   const scanning = operation.key === "catalog.scan" && operation.state === "running"
+  const selectedSkill = skillsQuery.data?.skills.find((item) => item.id === selectedSkillId)
+  const selectedConflictIds = selectedSkill
+    ? selectionQuery.data?.conflicts[selectedSkill.name.toLowerCase()] || []
+    : []
 
   return (
     <div className="page-stack">
@@ -432,6 +491,16 @@ export function SkillsPage() {
                     >
                       <ArrowRight />
                     </Button>
+                    {hasConflict && (
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={`比较 ${skill.name} 冲突`}
+                        onClick={() => openCompare(skill)}
+                      >
+                        <FileDiff />
+                      </Button>
+                    )}
                   </div>
                 </article>
               )
@@ -480,7 +549,84 @@ export function SkillsPage() {
       <SkillDetailSheet
         skillId={selectedSkillId}
         onOpenChange={(open) => !open && setSelectedSkillId(null)}
+        onDeletePreview={previewDelete}
+        onCompare={openCompare}
+        canCompare={selectedConflictIds.length > 1}
       />
+
+      <AlertDialog
+        open={Boolean(deletePreview)}
+        onOpenChange={(open) => !open && setDeletePreview(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="font-label text-2xl">
+              {deletePreview?.items[0]?.source_id === "my" ? "删除个人 Skill" : "移出目录"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {deletePreview?.items[0]?.source_id === "my"
+                ? "Skill 目录和说明文档会移入可恢复归档，不会直接丢失。"
+                : "上游文件不会被修改；该 Skill 会加入已删除清单，不再出现在 Catalog。"}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {deletePreview && (
+            <div className="preview-grid">
+              <div><strong>{deletePreview.counts.skills}</strong><span>Skill</span></div>
+              <div><strong>{deletePreview.counts.links}</strong><span>平台链接</span></div>
+              <div><strong>{deletePreview.counts.guides}</strong><span>说明文档</span></div>
+              <div><strong>{deletePreview.counts.profiles}</strong><span>配置文件</span></div>
+            </div>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void applyDelete()}>
+              确认处理
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <Dialog
+        open={Boolean(comparePair)}
+        onOpenChange={(open) => !open && setComparePair(null)}
+      >
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle className="font-label text-2xl">比较同名 Skill</DialogTitle>
+            <DialogDescription>
+              对比两个实现的来源、兼容平台和 `SKILL.md` 差异；选择要保留的实现后，再回到列表设置启用范围。
+            </DialogDescription>
+          </DialogHeader>
+          {compareQuery.isLoading ? (
+            <p className="text-sm text-muted-foreground">正在读取比较结果…</p>
+          ) : compareQuery.data ? (
+            <div className="space-y-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                {[compareQuery.data.left, compareQuery.data.right].map((entry) => (
+                  <div key={entry.id} className="border bg-surface p-4">
+                    <p className="font-label text-lg">{entry.name}</p>
+                    <p className="mt-1 font-data text-[10px] text-muted-foreground">{entry.id}</p>
+                    <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                      <StatusPill status="muted">{entry.source_id}</StatusPill>
+                      <StatusPill status="muted">{entry.compatibility.platforms.join(" / ") || "无平台"}</StatusPill>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <ScrollArea className="h-[min(52vh,420px)] border bg-[#17191a] p-4">
+                <pre className="font-data text-[11px] leading-5 text-[#e5e0d7]">
+                  {compareQuery.data.diff.length
+                    ? compareQuery.data.diff.join("\n")
+                    : "两个 SKILL.md 没有文本差异。"}
+                </pre>
+              </ScrollArea>
+            </div>
+          ) : null}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setComparePair(null)}>关闭</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <AlertDialog
         open={Boolean(installPreview)}
