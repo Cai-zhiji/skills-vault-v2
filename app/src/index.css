@@ -339,6 +339,13 @@ code {
   transition: background 120ms ease;
 }
 
+.skill-row-select {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 2px;
+}
+
 .skill-row + .skill-row {
   border-top: 1px solid var(--border);
 }
@@ -1179,6 +1186,10 @@ code {
 
   .skill-row {
     grid-template-columns: 1fr;
+  }
+
+  .skill-row-select {
+    align-items: stretch;
   }
 
   .skill-row-control {

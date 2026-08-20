@@ -77,6 +77,7 @@ export function SkillsPage() {
   const [source, setSource] = useState("all")
   const [classification, setClassification] = useState("all")
   const [selectedSkillId, setSelectedSkillId] = useState<string | null>(null)
+  const [selectedSkillIds, setSelectedSkillIds] = useState<Set<string>>(new Set())
   const [draft, setDraft] = useState<Record<string, SelectionMode>>({})
   const [installPreview, setInstallPreview] = useState<InstallPreview | null>(null)
   const [deletePreview, setDeletePreview] = useState<DeleteSkillPreview | null>(null)
@@ -157,6 +158,27 @@ export function SkillsPage() {
         .includes(needle)
     })
   }, [classification, search, skillsQuery.data?.skills, source])
+
+  const filteredSkillIds = useMemo(
+    () => filteredSkills.map((skill) => skill.id),
+    [filteredSkills],
+  )
+  const selectedSkills = useMemo(
+    () => (skillsQuery.data?.skills || []).filter((skill) => selectedSkillIds.has(skill.id)),
+    [selectedSkillIds, skillsQuery.data?.skills],
+  )
+  const bulkModeSupport = useMemo(
+    () => ({
+      both: selectedSkills.length > 0 && selectedSkills.every((skill) => {
+        const platforms = new Set(skill.compatibility.platforms)
+        return platforms.has("codex") && platforms.has("claude")
+      }),
+      codex: selectedSkills.length > 0 && selectedSkills.every((skill) => skill.compatibility.platforms.includes("codex")),
+      claude: selectedSkills.length > 0 && selectedSkills.every((skill) => skill.compatibility.platforms.includes("claude")),
+    }),
+    [selectedSkills],
+  )
+  const allFilteredSelected = filteredSkillIds.length > 0 && filteredSkillIds.every((id) => selectedSkillIds.has(id))
 
   const sources = useMemo(
     () =>
@@ -264,19 +286,48 @@ export function SkillsPage() {
     }
   }
 
-  const previewDelete = async (skill: SkillsPayload["skills"][number]) => {
+  const previewDelete = async (
+    target: SkillsPayload["skills"][number] | SkillsPayload["skills"],
+  ) => {
+    const skillIds = Array.isArray(target) ? target.map((skill) => skill.id) : [target.id]
+    const targetSkills = Array.isArray(target) ? target : [target]
     const result = await runOperation(
       "skill.delete.preview",
-      skill.source_id === "my" ? "预览删除 Skill" : "预览移出目录",
-      "计算归档、平台链接与关联配置的影响范围",
+      targetSkills.every((skill) => skill.source_id === "my") ? "预览删除 Skills" : "预览移出目录",
+      `计算 ${skillIds.length} 个 Skill 的归档、平台链接与关联配置影响范围`,
       () =>
         api.post<DeleteSkillPreview>("/api/skills/delete/preview", {
-          skill_ids: [skill.id],
+          skill_ids: skillIds,
         }),
       (value) =>
         `Preview：${value.counts.skills} 个 Skill，${value.counts.links} 个平台链接受影响`,
     )
-    if (result) setDeletePreview(result)
+    if (result) {
+      setDeletePreview(result)
+      setSelectedSkillIds(new Set())
+    }
+  }
+
+  const toggleSkill = (skillId: string) => {
+    setSelectedSkillIds((current) => {
+      const next = new Set(current)
+      if (next.has(skillId)) next.delete(skillId)
+      else next.add(skillId)
+      return next
+    })
+  }
+
+  const toggleFilteredSkills = () => {
+    setSelectedSkillIds((current) => {
+      const next = new Set(current)
+      if (allFilteredSelected) filteredSkillIds.forEach((id) => next.delete(id))
+      else filteredSkillIds.forEach((id) => next.add(id))
+      return next
+    })
+  }
+
+  const applyBulkMode = (mode: SelectionMode) => {
+    selectedSkillIds.forEach((skillId) => updateMode(skillId, mode))
   }
 
   const applyDelete = async () => {
@@ -392,11 +443,20 @@ export function SkillsPage() {
 
       <section className="catalog-panel" aria-label="Skills 目录">
         <div className="catalog-header">
-          <div>
+          <div className="flex items-center gap-3">
+            <input
+              type="checkbox"
+              aria-label={allFilteredSelected ? "取消选择当前结果" : "选择当前结果"}
+              checked={allFilteredSelected}
+              onChange={toggleFilteredSkills}
+              className="size-4 accent-[var(--copper)]"
+            />
+            <div>
             <p className="eyebrow">CATALOG ENTRIES</p>
             <p className="mt-1 text-xs text-muted-foreground">
               显示 {filteredSkills.length} / {skillsQuery.data?.total || 0}
             </p>
+            </div>
           </div>
           <div className="hidden items-center gap-6 text-[10px] text-muted-foreground md:flex">
             <span>来源 / 分类</span>
@@ -423,37 +483,47 @@ export function SkillsPage() {
               )
               return (
                 <article className="skill-row" key={skill.id}>
-                  <button
-                    type="button"
-                    className="skill-row-main"
-                    onClick={() => setSelectedSkillId(skill.id)}
-                  >
-                    <div className="skill-glyph" aria-hidden="true">
-                      {skill.name.slice(0, 2).toUpperCase()}
-                    </div>
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h2 className="font-medium text-foreground">{skill.name}</h2>
-                        {skill.source_id === "my" && (
-                          <StatusPill status="safe">个人</StatusPill>
-                        )}
-                        {hasConflict && <StatusPill status="warning">同名冲突</StatusPill>}
-                        {skill.risk_signals.length > 0 && (
-                          <StatusPill status="muted">
-                            {skill.risk_signals.length} risk
-                          </StatusPill>
-                        )}
+                  <div className="skill-row-select">
+                    <input
+                      type="checkbox"
+                      aria-label={`选择 ${skill.name}`}
+                      checked={selectedSkillIds.has(skill.id)}
+                      onChange={() => toggleSkill(skill.id)}
+                      onClick={(event) => event.stopPropagation()}
+                      className="ml-1 size-4 shrink-0 accent-[var(--copper)]"
+                    />
+                    <button
+                      type="button"
+                      className="skill-row-main"
+                      onClick={() => setSelectedSkillId(skill.id)}
+                    >
+                      <div className="skill-glyph" aria-hidden="true">
+                        {skill.name.slice(0, 2).toUpperCase()}
                       </div>
-                      <p className="mt-1.5 text-xs leading-5 text-muted-foreground">
-                        {truncate(skill.summary_zh || skill.description || "暂无说明")}
-                      </p>
-                      <div className="mt-2 flex flex-wrap items-center gap-3 font-data text-[10px] text-muted-foreground">
-                        <span>{skill.source_id}</span>
-                        <span>{skill.classification}</span>
-                        <span>{skill.invocation.codex}</span>
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h2 className="font-medium text-foreground">{skill.name}</h2>
+                          {skill.source_id === "my" && (
+                            <StatusPill status="safe">个人</StatusPill>
+                          )}
+                          {hasConflict && <StatusPill status="warning">同名冲突</StatusPill>}
+                          {skill.risk_signals.length > 0 && (
+                            <StatusPill status="muted">
+                              {skill.risk_signals.length} risk
+                            </StatusPill>
+                          )}
+                        </div>
+                        <p className="mt-1.5 text-xs leading-5 text-muted-foreground">
+                          {truncate(skill.summary_zh || skill.description || "暂无说明")}
+                        </p>
+                        <div className="mt-2 flex flex-wrap items-center gap-3 font-data text-[10px] text-muted-foreground">
+                          <span>{skill.source_id}</span>
+                          <span>{skill.classification}</span>
+                          <span>{skill.invocation.codex}</span>
+                        </div>
                       </div>
-                    </div>
-                  </button>
+                    </button>
+                  </div>
                   <div className="skill-row-control">
                     <Select
                       value={mode}
@@ -517,6 +587,36 @@ export function SkillsPage() {
           </div>
         )}
       </section>
+
+      {selectedSkills.length > 0 && (
+        <div className="selection-dock selection-dock-visible">
+          <div>
+            <p className="text-sm font-medium">已选择 {selectedSkills.length} 个 Skill</p>
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              批量设置会先保存选择；删除会先生成影响预览。
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <Select onValueChange={(value) => applyBulkMode((value || "off") as SelectionMode)}>
+              <SelectTrigger className="w-[150px]" aria-label="批量设置启用范围">
+                <SelectValue placeholder="批量设置范围" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="off">全部关闭</SelectItem>
+                <SelectItem value="both" disabled={!bulkModeSupport.both}>两端启用</SelectItem>
+                <SelectItem value="codex" disabled={!bulkModeSupport.codex}>仅 Codex</SelectItem>
+                <SelectItem value="claude" disabled={!bulkModeSupport.claude}>仅 Claude</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button variant="outline" onClick={() => void previewDelete(selectedSkills)}>
+              批量删除 / 移出
+            </Button>
+            <Button variant="ghost" onClick={() => setSelectedSkillIds(new Set())}>
+              取消选择
+            </Button>
+          </div>
+        </div>
+      )}
 
       <div className={cn("selection-dock", hasDraftChanges && "selection-dock-visible")}>
         <div>
