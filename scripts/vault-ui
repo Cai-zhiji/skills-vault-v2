@@ -3,7 +3,7 @@ set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_ROOT="$PROJECT_ROOT/app"
-VAULT_DATA_ROOT="${SKILLS_VAULT_ROOT:-$PROJECT_ROOT/../skills-vault}"
+VAULT_DATA_ROOT="${SKILLS_VAULT_ROOT:-$PROJECT_ROOT}"
 
 if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
   echo "Skills Vault v2 需要 Node.js 20+ 与 npm。" >&2

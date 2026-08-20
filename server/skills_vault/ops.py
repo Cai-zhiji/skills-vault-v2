@@ -687,6 +687,11 @@ def install(
         raise VaultError("Install cancelled")
     backup = backup_path
     old_state = load_data(vault.state_dir / "install-state.json", {"links": []})
+    managed_by_path = {
+        str(item.get("path")): item
+        for item in old_state.get("links", [])
+        if item.get("path") and item.get("target")
+    }
     created = []
     try:
         if reset:
@@ -706,9 +711,17 @@ def install(
                 created.append(operation)
                 continue
             if destination.exists() or destination.is_symlink():
-                raise VaultError(
-                    f"Destination is not managed by this install plan: {destination}. Use --reset or resolve it manually."
-                )
+                managed = managed_by_path.get(str(destination))
+                if (
+                    managed
+                    and destination.is_symlink()
+                    and destination.resolve() == Path(managed["target"]).resolve()
+                ):
+                    destination.unlink()
+                else:
+                    raise VaultError(
+                        f"Destination is not managed by this install plan: {destination}. Use --reset or resolve it manually."
+                    )
             destination.symlink_to(target, target_is_directory=True)
             created.append(operation)
     except Exception:

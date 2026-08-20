@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "description": "Shared, reviewed daily-work skills for Codex and Claude Code.",
+  "include": [
+    "mattpocock/ask-matt",
+    "mattpocock/code-review",
+    "mattpocock/codebase-design",
+    "mattpocock/diagnosing-bugs",
+    "mattpocock/domain-modeling",
+    "mattpocock/grill-with-docs",
+    "mattpocock/implement",
+    "mattpocock/improve-codebase-architecture",
+    "mattpocock/prototype",
+    "mattpocock/research",
+    "mattpocock/resolving-merge-conflicts",
+    "mattpocock/setup-matt-pocock-skills",
+    "mattpocock/tdd",
+    "mattpocock/to-spec",
+    "mattpocock/to-tickets",
+    "mattpocock/triage",
+    "mattpocock/wayfinder",
+    "mattpocock/wizard",
+    "mattpocock/grill-me",
+    "mattpocock/grilling",
+    "mattpocock/handoff",
+    "mattpocock/teach",
+    "mattpocock/to-questionnaire",
+    "mattpocock/wait-what",
+    "mattpocock/writing-for-agents"
+  ]
+}

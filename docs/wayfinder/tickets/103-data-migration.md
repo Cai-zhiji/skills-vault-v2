@@ -28,8 +28,14 @@
 
 ## Resolution
 
-首版不复制用户数据，而是把旧项目作为外部 Vault 数据工作区挂载。应用代码与用户数据因此独立升级，旧仓库保持原状并继续作为唯一事实源。
+最初首版采用外部挂载：旧项目继续作为唯一事实源，v2 只承载应用代码。该决定已被 2026-08-20 的迁移决定取代。
 
-启动器按以下顺序选择数据目录：显式 `--vault-root`、`SKILLS_VAULT_ROOT`、新项目的相邻旧目录 `../skills-vault`。服务启动时验证 `registry.yaml`、`profiles/` 与 Catalog 能否读取；无法识别时拒绝启动，不创建半成品数据。
+当前决定是让 v2 项目根目录成为唯一活动 Vault，并按数据所有权分层：
 
-未来若迁移到独立数据目录，必须另建只读预检与显式 Apply 流程；本版本不做隐式复制。
+- `registry.yaml`、`lock.yaml`、`my-skills/`、`profiles/`、`annotations/` 与 `docs/skill-guides/` 随 v2 主 Git 版本化。
+- `sources/` 与项目同目录，但 Git 来源保留各自历史，避免被父仓库压成不可维护的嵌套仓库记录。
+- `catalog/` 是可重建索引；`.vault/` 保存本机安装状态、事务、备份和回收站，两者同仓但不进入 v2 主 Git。
+- 迁移复制持久数据、审计记录、备份与回收站；过期 Preview token 和旧服务日志不迁移。
+- 网站完成来源更新后直接写入 v2 的 `sources/`、`lock.yaml` 和 `catalog/`，不再与旧仓库双向同步。
+
+启动器默认使用 v2 项目根目录。显式 `--vault-root` 优先于 `SKILLS_VAULT_ROOT`，二者只用于测试、诊断或打开其他 Vault。旧项目保持原状，作为迁移回滚副本。

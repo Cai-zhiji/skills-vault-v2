@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "description": "Academic writing, Office, and scientific toolkit entry points.",
+  "include": [
+    "academic/office-academic-skill",
+    "academic/research-writing-skill",
+    "academic/scientific-toolkit-skill"
+  ]
+}

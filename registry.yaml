@@ -1,0 +1,106 @@
+{
+  "schema_version": 1,
+  "sources": {
+    "anthropic": {
+      "url": "git@github.com:anthropics/skills.git",
+      "path": "sources/anthropic-skills",
+      "branch": "main",
+      "track": "branch",
+      "trust": "reviewed",
+      "license": "per-skill",
+      "reviewed_at": "2026-08-13",
+      "classify": [
+        {
+          "pattern": "skills/*/SKILL.md",
+          "as": "published"
+        },
+        {
+          "pattern": "template/SKILL.md",
+          "as": "template"
+        },
+        {
+          "pattern": "**/SKILL.md",
+          "as": "unknown"
+        }
+      ]
+    },
+    "academic": {
+      "url": "git@github.com:zLanqing/codex-claude-academic-skills.git",
+      "path": "sources/codex-claude-academic-skills",
+      "branch": "main",
+      "track": "branch",
+      "trust": "reviewed",
+      "license": "MIT",
+      "reviewed_at": "2026-08-13",
+      "classify": [
+        {
+          "pattern": "*-skill/SKILL.md",
+          "as": "published"
+        },
+        {
+          "pattern": "*/references/**/SKILL.md",
+          "as": "embedded"
+        },
+        {
+          "pattern": "**/SKILL.md",
+          "as": "unknown"
+        }
+      ]
+    },
+    "mattpocock": {
+      "url": "git@github.com:mattpocock/skills.git",
+      "path": "sources/mattpocock-skills",
+      "branch": "main",
+      "track": "branch",
+      "trust": "reviewed",
+      "license": "MIT",
+      "reviewed_at": "2026-08-13",
+      "classify": [
+        {
+          "pattern": "skills/engineering/*/SKILL.md",
+          "as": "published"
+        },
+        {
+          "pattern": "skills/productivity/*/SKILL.md",
+          "as": "published"
+        },
+        {
+          "pattern": "skills/in-progress/*/SKILL.md",
+          "as": "experimental"
+        },
+        {
+          "pattern": "skills/deprecated/*/SKILL.md",
+          "as": "deprecated"
+        },
+        {
+          "pattern": "skills/personal/*/SKILL.md",
+          "as": "private"
+        },
+        {
+          "pattern": "skills/misc/*/SKILL.md",
+          "as": "unknown"
+        },
+        {
+          "pattern": "**/SKILL.md",
+          "as": "unknown"
+        }
+      ]
+    },
+    "drawio-skill": {
+      "kind": "git",
+      "url": "https://github.com/Agents365-ai/drawio-skill.git",
+      "path": "sources/drawio-skill",
+      "branch": "main",
+      "track": "branch",
+      "trust": "reviewed",
+      "license": "MIT",
+      "reviewed_at": "2026-08-19",
+      "classify": [
+        {
+          "pattern": "**/SKILL.md",
+          "as": "unknown"
+        }
+      ]
+    }
+  }
+}

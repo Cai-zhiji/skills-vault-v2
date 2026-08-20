@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "description": "UI-managed Claude-only skills.",
+  "platform": "claude",
+  "include": [],
+  "classification": [
+    "published"
+  ]
+}

@@ -19,7 +19,7 @@
 - 网站成为主要入口；CLI 退居辅助角色。见[确定网站主入口](tickets/001-web-primary-entry.md)。
 - 前端基础确定为 React + shadcn/ui + Tailwind CSS。见[确定前端组件基础](tickets/002-frontend-foundation.md)。
 - 视觉采用“本地仓库工作台”，以同步轨作为签名元素。见[确定视觉基线](tickets/003-visual-baseline.md)。
-- v2 使用独立新目录和本地 Git，旧项目只作为可配置的数据工作区。见[确定新项目边界](tickets/004-new-project-boundary.md)。
+- v2 使用独立新目录和本地 Git；完成迁移后，v2 根目录也是唯一活动数据工作区，旧项目仅作回滚副本。见[制定旧项目数据迁移方案](tickets/103-data-migration.md)。
 
 ## Decisions resolved autonomously
 
@@ -52,6 +52,6 @@
 ## Out of scope
 
 - 不修改、整理或提交旧项目工作区中的现有未提交改动。
-- 不自动迁移 `sources/`、`my-skills/`、Profile、说明文档或运行时状态。
+- 不删除或整理旧项目；迁移只复制持久数据，旧目录保持可回滚。
 - 不发布到远端 Git，不配置云端 CI/CD。
 - 不直接复制参考站点的品牌外观、素材或专有字体。

@@ -1,0 +1,6 @@
+{
+  "schema_version": 1,
+  "description": "Codex-only profile differences.",
+  "platform": "codex",
+  "include": []
+}

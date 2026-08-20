@@ -1,0 +1,6 @@
+{
+  "schema_version": 1,
+  "description": "Claude Code-only profile differences.",
+  "platform": "claude",
+  "include": []
+}

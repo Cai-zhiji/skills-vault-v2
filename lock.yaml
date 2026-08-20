@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-08-19T10:51:22+08:00",
+  "sources": {
+    "anthropic": {
+      "kind": "git",
+      "commit": "0a64e398ec6bb34a494f0c347e8ccae53a862f8e",
+      "branch": "main",
+      "previous_commit": "0a64e398ec6bb34a494f0c347e8ccae53a862f8e"
+    },
+    "academic": {
+      "kind": "git",
+      "commit": "7ed6377f0efb6a38951b48ef03b19d996e454b1f",
+      "branch": "main",
+      "previous_commit": "7ed6377f0efb6a38951b48ef03b19d996e454b1f"
+    },
+    "mattpocock": {
+      "kind": "git",
+      "commit": "9c9f36ccd3995266cd675468af71639c8dde1ec5",
+      "branch": "main",
+      "previous_commit": "9c9f36ccd3995266cd675468af71639c8dde1ec5"
+    },
+    "drawio-skill": {
+      "kind": "git",
+      "commit": "2ee141e0ff183ce76dc405370aeb142c6961aa45",
+      "branch": "main",
+      "previous_commit": "2ee141e0ff183ce76dc405370aeb142c6961aa45"
+    }
+  }
+}

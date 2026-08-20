@@ -24,6 +24,7 @@ from skills_vault.ops import (
     _restore_backup_path,
     apply_updates,
     create_backup,
+    install,
     install_plan,
     lint_vault,
     source_audit,
@@ -242,6 +243,57 @@ class RepositoryIntegrationTests(unittest.TestCase):
 
 
 class BackupTests(unittest.TestCase):
+    def test_install_retargets_a_link_managed_by_previous_vault_root(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            root = base / "vault"
+            state = root / ".vault"
+            state.mkdir(parents=True)
+            (root / "profiles").mkdir()
+            write_data(root / "profiles" / "base.yaml", {"schema_version": 1, "include": []})
+            old_target = base / "old-vault" / "my-skills" / "demo"
+            new_target = root / "my-skills" / "demo"
+            old_target.mkdir(parents=True)
+            new_target.mkdir(parents=True)
+            destination = base / "home" / ".agents" / "skills" / "demo"
+            destination.parent.mkdir(parents=True)
+            destination.symlink_to(old_target, target_is_directory=True)
+            write_data(
+                state / "install-state.json",
+                {
+                    "schema_version": 1,
+                    "links": [
+                        {
+                            "path": str(destination),
+                            "target": str(old_target),
+                            "skill_id": "my/demo",
+                            "platform": "codex",
+                        }
+                    ],
+                },
+            )
+            plan = {
+                "profiles": ["base"],
+                "operations": [
+                    {
+                        "path": str(destination),
+                        "target": str(new_target),
+                        "skill_id": "my/demo",
+                        "platform": "codex",
+                        "name": "demo",
+                    }
+                ],
+                "notes": [],
+                "changes": {"added": [], "removed": [], "changed": [], "kept": []},
+            }
+            vault = Vault(root)
+            with patch("skills_vault.ops.install_plan", return_value=plan):
+                install(vault, ["base"], assume_yes=True)
+            self.assertTrue(destination.is_symlink())
+            self.assertEqual(destination.resolve(), new_target.resolve())
+            installed = load_data(state / "install-state.json")
+            self.assertEqual(installed["links"][0]["target"], str(new_target))
+
     def test_backup_reset_and_restore_preserves_codex_system(self):
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)

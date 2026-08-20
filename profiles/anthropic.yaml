@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "description": "Anthropic's published reference skills; opt in because several overlap with other sources.",
+  "include_source": [
+    "anthropic"
+  ],
+  "classification": [
+    "published"
+  ]
+}

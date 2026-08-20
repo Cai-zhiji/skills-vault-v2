@@ -20,6 +20,11 @@ __pycache__/
 .vault/*
 !.vault/.gitkeep
 
+# Co-located managed data
+# Source trees retain their own Git history; Catalog is rebuilt from facts.
+sources/
+catalog/
+
 # OS / IDE
 .DS_Store
 .idea/

@@ -16,7 +16,7 @@ from typing import Any, Dict, List
 APP_ROOT = Path(__file__).resolve().parents[1]
 SERVER_ROOT = Path(__file__).resolve().parent
 WEB_ROOT = APP_ROOT / "app" / "dist"
-VAULT_ROOT = (APP_ROOT.parent / "skills-vault").resolve()
+VAULT_ROOT = APP_ROOT.resolve()
 sys.path.insert(0, str(SERVER_ROOT))
 
 from skills_vault.core import Vault, VaultError, load_data  # noqa: E402
@@ -455,7 +455,7 @@ def main() -> int:
     parser.add_argument(
         "--vault-root",
         default=os.environ.get("SKILLS_VAULT_ROOT", str(VAULT_ROOT)),
-        help="Path to the Skills Vault data workspace",
+        help="Path to the Skills Vault workspace (defaults to this project)",
     )
     parser.add_argument(
         "--static-root",

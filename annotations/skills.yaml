@@ -1,0 +1,272 @@
+{
+  "schema_version": 1,
+  "skills": {
+    "mattpocock/grill-me": {
+      "summary_zh": "通过逐题追问把模糊计划收敛为共同理解。",
+      "recommended_for": [
+        "需求澄清",
+        "方案压力测试"
+      ],
+      "not_recommended_for": [
+        "已经明确且只需执行的小任务"
+      ],
+      "requires": [
+        "mattpocock/grilling"
+      ],
+      "review_status": "reviewed",
+      "reviewed_at": "2026-08-13"
+    },
+    "mattpocock/grill-with-docs": {
+      "summary_zh": "通过持续追问完善方案，并同步生成决策记录和术语表。",
+      "requires": [
+        "mattpocock/grilling",
+        "mattpocock/domain-modeling"
+      ],
+      "review_status": "reviewed",
+      "reviewed_at": "2026-08-13"
+    },
+    "my/skill-guide-writer": {
+      "summary_zh": "把原始 SKILL.md 重写成结构清晰的中文功能说明文档。"
+    },
+    "mattpocock/implement": {
+      "requires": [
+        "mattpocock/tdd",
+        "mattpocock/code-review"
+      ],
+      "review_status": "reviewed",
+      "reviewed_at": "2026-08-13",
+      "summary_zh": "根据规格或任务单分步实现功能。"
+    },
+    "anthropic/algorithmic-art": {
+      "summary_zh": "用 p5.js 和可复现随机性创作可交互的算法艺术。"
+    },
+    "mattpocock/ask-matt": {
+      "summary_zh": "根据当前问题推荐合适的 Skill 或工作流。"
+    },
+    "academic/astropy": {
+      "summary_zh": "用 Astropy 处理天文坐标、单位、FITS、宇宙学与时间系统。"
+    },
+    "anthropic/brand-guidelines": {
+      "summary_zh": "为产物应用 Anthropic 的品牌色彩、字体和视觉规范。"
+    },
+    "anthropic/canvas-design": {
+      "summary_zh": "用设计方法创作原创 PNG 或 PDF 静态视觉作品。"
+    },
+    "academic/citation-management": {
+      "summary_zh": "检索、核验和整理论文引用，生成准确的 BibTeX。"
+    },
+    "anthropic/claude-api": {
+      "summary_zh": "查阅 Claude API 与 SDK 的模型、参数、计费、工具和迁移信息。"
+    },
+    "mattpocock/claude-handoff": {
+      "summary_zh": "把当前对话交接给后台 Agent 继续执行。"
+    },
+    "my/cloudbase": {
+      "summary_zh": "开发和排查腾讯云 CloudBase、云函数、数据库、认证与 AI 项目。"
+    },
+    "mattpocock/code-review": {
+      "summary_zh": "从规范和需求两方面并行审查代码变更。"
+    },
+    "mattpocock/codebase-design": {
+      "summary_zh": "用深模块方法设计接口、边界和可维护的代码结构。"
+    },
+    "mattpocock/diagnosing-bugs": {
+      "summary_zh": "用系统化诊断循环定位复杂 Bug 和性能回归。"
+    },
+    "anthropic/doc-coauthoring": {
+      "summary_zh": "通过协作、迭代和验证流程共同编写结构化文档。"
+    },
+    "anthropic/docx": {
+      "summary_zh": "创建、读取、编辑和整理 Word 文档与模板。"
+    },
+    "mattpocock/domain-modeling": {
+      "summary_zh": "梳理项目术语、领域模型、CONTEXT 和 ADR。"
+    },
+    "academic/exploratory-data-analysis": {
+      "summary_zh": "自动分析科研数据文件的结构、质量并生成报告。"
+    },
+    "anthropic/frontend-design": {
+      "summary_zh": "为界面建立有辨识度的视觉方向、排版和交互风格。"
+    },
+    "mattpocock/git-guardrails-claude-code": {
+      "summary_zh": "为 Claude Code 配置钩子，拦截危险 Git 操作。"
+    },
+    "mattpocock/grilling": {
+      "summary_zh": "通过持续追问压力测试计划、决策或想法。"
+    },
+    "mattpocock/handoff": {
+      "summary_zh": "把当前对话压缩为可交接给其他 Agent 的文档。"
+    },
+    "mattpocock/improve-codebase-architecture": {
+      "summary_zh": "扫描代码库并生成架构改进报告，再推进选定项。"
+    },
+    "anthropic/internal-comms": {
+      "summary_zh": "撰写状态汇报、领导更新、事件报告等内部沟通文案。"
+    },
+    "academic/literature-review": {
+      "summary_zh": "跨学术数据库开展系统综述、元分析并生成带引文的文档。"
+    },
+    "mattpocock/loop-me": {
+      "summary_zh": "围绕工作流规格持续追问，明确要构建的流程。"
+    },
+    "academic/matlab": {
+      "summary_zh": "用 MATLAB/Octave 进行数值计算、信号图像处理、统计和优化。"
+    },
+    "academic/matplotlib": {
+      "summary_zh": "用 Matplotlib 精细定制并导出论文级图表。"
+    },
+    "anthropic/mcp-builder": {
+      "summary_zh": "设计和实现高质量 MCP Server 及其工具接口。"
+    },
+    "mattpocock/migrate-to-shoehorn": {
+      "summary_zh": "将测试中的 TypeScript `as` 断言迁移为 shoehorn。"
+    },
+    "my/miniprogram-dev": {
+      "summary_zh": "覆盖微信小程序预览、上传及 CloudBase 部署。"
+    },
+    "academic/networkx": {
+      "summary_zh": "用 NetworkX 构建、分析和可视化复杂网络与图算法。"
+    },
+    "my/office": {
+      "summary_zh": "通过 officecli 统一处理 Word、Excel 和 PowerPoint 文件。"
+    },
+    "academic/office-academic-skill": {
+      "summary_zh": "中文优先完成论文报告、学术 PPT、DOCX/PPTX 生成和版式检查。"
+    },
+    "academic/paper-lookup": {
+      "summary_zh": "跨多个学术数据库检索论文、DOI、摘要、全文和开放版本。"
+    },
+    "academic/pdf": {
+      "summary_zh": "处理 PDF 的读取、提取、合并、拆分、表单、加密与 OCR。"
+    },
+    "anthropic/pdf": {
+      "summary_zh": "处理 PDF 的读取、提取、合并、拆分、表单、加密与 OCR。"
+    },
+    "anthropic/pptx": {
+      "summary_zh": "创建、读取、编辑、拆分和合并 PowerPoint 演示文稿。"
+    },
+    "mattpocock/prototype": {
+      "summary_zh": "快速构建一次性原型，验证设计问题、状态模型或逻辑。"
+    },
+    "academic/pymatgen": {
+      "summary_zh": "用 Pymatgen 处理晶体结构、相图、能带和材料格式转换。"
+    },
+    "academic/pymoo": {
+      "summary_zh": "用多目标优化算法、约束和基准问题求解工程设计。"
+    },
+    "academic/qutip": {
+      "summary_zh": "模拟开放量子系统、退相干、量子光学和腔量子电动力学。"
+    },
+    "mattpocock/research": {
+      "summary_zh": "基于高可信一手资料调研，并将结果写入仓库 Markdown。"
+    },
+    "academic/research-writing-skill": {
+      "summary_zh": "用中文优先流程撰写、修改论文、回复审稿意见和规划论证。"
+    },
+    "mattpocock/resolving-merge-conflicts": {
+      "summary_zh": "处理进行中的 Git merge 或 rebase 冲突。"
+    },
+    "mattpocock/scaffold-exercises": {
+      "summary_zh": "搭建包含题目、答案和讲解的练习目录结构。"
+    },
+    "academic/scientific-toolkit-skill": {
+      "summary_zh": "覆盖 MATLAB、Python 科研计算、数据分析、仿真、优化和可复现研究。"
+    },
+    "academic/scientific-visualization": {
+      "summary_zh": "编排 Matplotlib、Seaborn 等工具制作期刊级多面板图表。"
+    },
+    "academic/scikit-learn": {
+      "summary_zh": "用 scikit-learn 完成机器学习预处理、建模、评估和调参。"
+    },
+    "academic/seaborn": {
+      "summary_zh": "用 Seaborn 快速绘制统计分布、关系和分类图表。"
+    },
+    "mattpocock/setup-matt-pocock-skills": {
+      "summary_zh": "首次使用工程 Skills 前配置 issue、triage 标签和领域文档。"
+    },
+    "mattpocock/setup-pre-commit": {
+      "summary_zh": "配置 Husky、lint-staged、格式化、类型检查和提交前测试。"
+    },
+    "mattpocock/setup-ts-deep-modules": {
+      "summary_zh": "为 TypeScript 多包仓库配置 dependency-cruiser 深模块约束。"
+    },
+    "academic/simpy": {
+      "summary_zh": "用 SimPy 构建队列、资源和时间驱动的离散事件仿真。"
+    },
+    "anthropic/skill-creator": {
+      "summary_zh": "创建、改进和评测 Skills，优化触发描述与执行效果。"
+    },
+    "anthropic/slack-gif-creator": {
+      "summary_zh": "制作符合 Slack 规范的动画 GIF。"
+    },
+    "academic/statistical-analysis": {
+      "summary_zh": "选择统计检验、检查假设并生成 APA 格式结果。"
+    },
+    "academic/statsmodels": {
+      "summary_zh": "用 statsmodels 进行 OLS、GLM、混合模型、ARIMA 等统计建模。"
+    },
+    "academic/sympy": {
+      "summary_zh": "用 SymPy 进行符号方程、微积分、矩阵和精确数学计算。"
+    },
+    "mattpocock/tdd": {
+      "summary_zh": "用红绿重构流程，以测试驱动功能实现和 Bug 修复。"
+    },
+    "mattpocock/teach": {
+      "summary_zh": "在当前工作区内讲解新的技能或概念。"
+    },
+    "anthropic/template-skill": {
+      "summary_zh": "技能模板占位说明，需替换为具体用途和触发条件。"
+    },
+    "anthropic/theme-factory": {
+      "summary_zh": "为文档、幻灯片、HTML 等产物应用或生成统一主题。"
+    },
+    "academic/timesfm-forecasting": {
+      "summary_zh": "用 Google TimesFM 对单变量时间序列进行零样本预测。"
+    },
+    "mattpocock/to-questionnaire": {
+      "summary_zh": "把无法独立决定的事项整理成他人可填写的问卷。"
+    },
+    "mattpocock/to-spec": {
+      "summary_zh": "将当前对话整理为规格并发布到项目 issue tracker。"
+    },
+    "mattpocock/to-tickets": {
+      "summary_zh": "把计划或规格拆成带阻塞关系的 tracer-bullet 任务。"
+    },
+    "mattpocock/triage": {
+      "summary_zh": "按状态机分类、核验和整理 Issue 与外部 PR。"
+    },
+    "mattpocock/wait-what": {
+      "summary_zh": "当上一条信息未被正确理解时暂停并重新说明。"
+    },
+    "mattpocock/wayfinder": {
+      "summary_zh": "把超大任务拆成共享决策地图和可逐项推进的任务。"
+    },
+    "anthropic/web-artifacts-builder": {
+      "summary_zh": "构建带状态管理、路由和组件库的复杂 Claude HTML 应用。"
+    },
+    "anthropic/webapp-testing": {
+      "summary_zh": "用 Playwright 测试本地 Web 应用并检查截图和浏览器日志。"
+    },
+    "mattpocock/wizard": {
+      "summary_zh": "生成引导配置、凭据或迁移的交互式 Bash 向导。"
+    },
+    "mattpocock/writing-beats": {
+      "summary_zh": "把原始素材整理成逐步推进、概念清晰的叙事节拍。"
+    },
+    "mattpocock/writing-for-agents": {
+      "summary_zh": "编写适合 Agent 读取和执行的 Skills、AGENTS 或 CLAUDE 文档。"
+    },
+    "mattpocock/writing-fragments": {
+      "summary_zh": "从原始素材中提取片段，探索内容方向而不急于定稿。"
+    },
+    "mattpocock/writing-shape": {
+      "summary_zh": "逐段组织原始素材，塑造成完整文章。"
+    },
+    "academic/xlsx": {
+      "summary_zh": "创建、读取、编辑和清理 Excel、CSV 等表格文件。"
+    },
+    "anthropic/xlsx": {
+      "summary_zh": "创建、读取、编辑和清理 Excel、CSV 等表格文件。"
+    }
+  }
+}
