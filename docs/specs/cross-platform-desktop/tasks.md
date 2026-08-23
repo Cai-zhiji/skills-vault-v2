@@ -85,12 +85,12 @@
 
 ## 里程碑 6：开发与打包
 
-- [ ] 6.1 建立统一开发入口
+- [x] 6.1 建立统一开发入口
   - 根目录提供 `npm run dev`、`dev:web`、`test:all`。
   - 使用跨平台进程编排替代 Bash 作为默认入口。
   - _需求：R1、R8_
 
-- [ ] 6.2 建立 Python sidecar 打包
+- [x] 6.2 建立 Python sidecar 打包
   - 使用 PyInstaller 生成当前平台 sidecar并按 target triple 命名。
   - 打包前验证测试、版本和所需工具链。
   - _需求：R2、R7_
@@ -98,6 +98,7 @@
 - [ ] 6.3 建立 Tauri 安装包输出
   - 实现 `npm run package` 和版本化产物目录、校验和与构建元数据。
   - 配置 macOS app/DMG、Windows NSIS、Ubuntu AppImage。
+  - 编排、产物目录和元数据已实现；当前 macOS 开发机缺少 Rust/Cargo，尚未生成首个 Tauri bundle。
   - _需求：R7_
 
 ## 里程碑 7：三平台验收与交付
@@ -114,7 +115,7 @@
   - 验证启动、路径、权限、缺失依赖和卸载数据保留。
   - _需求：R5、R7、R8_
 
-- [ ] 7.4 更新默认入口与迁移文档
+- [x] 7.4 更新默认入口与迁移文档
   - README 以桌面安装和 `npm run dev` 为主，旧 Bash 入口标记兼容状态。
   - 记录签名/公证状态和未完成的平台限制。
   - _需求：R1、R7、R9_
