@@ -1,11 +1,14 @@
 use serde::{Deserialize, Serialize};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
+#[cfg(debug_assertions)]
 use std::process::{Child as DebugChild, Command as DebugCommand, Stdio};
 use std::sync::Mutex;
 use std::time::Duration;
 use tauri::{AppHandle, Manager, RunEvent, State};
+#[cfg(not(debug_assertions))]
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
+#[cfg(not(debug_assertions))]
 use tauri_plugin_shell::ShellExt;
 
 #[derive(Clone, Debug, Deserialize)]
@@ -27,17 +30,21 @@ struct RuntimeConfig {
 }
 
 enum SidecarChild {
+    #[cfg(debug_assertions)]
     Debug(DebugChild),
+    #[cfg(not(debug_assertions))]
     Release(CommandChild),
 }
 
 impl SidecarChild {
-    fn kill(&mut self) {
+    fn kill(self) {
         match self {
-            Self::Debug(child) => {
+            #[cfg(debug_assertions)]
+            Self::Debug(mut child) => {
                 let _ = child.kill();
                 let _ = child.wait();
             }
+            #[cfg(not(debug_assertions))]
             Self::Release(child) => {
                 let _ = child.kill();
             }
@@ -99,7 +106,10 @@ fn spawn_sidecar(app: &AppHandle) -> Result<(RuntimeConfig, SidecarChild), Strin
         .parent()
         .ok_or("无法确定项目根目录")?;
     let mut args = vec![
-        project_root.join("server/http_server.py").to_string_lossy().into_owned(),
+        project_root
+            .join("server/http_server.py")
+            .to_string_lossy()
+            .into_owned(),
         "--static-root".into(),
         project_root.join("app/dist").to_string_lossy().into_owned(),
     ];
@@ -127,7 +137,10 @@ fn spawn_sidecar(app: &AppHandle) -> Result<(RuntimeConfig, SidecarChild), Strin
             eprintln!("[sidecar] {line}");
         }
     });
-    Ok((runtime_from_handshake(handshake), SidecarChild::Debug(child)))
+    Ok((
+        runtime_from_handshake(handshake),
+        SidecarChild::Debug(child),
+    ))
 }
 
 #[cfg(not(debug_assertions))]
@@ -167,7 +180,10 @@ fn spawn_sidecar(app: &AppHandle) -> Result<(RuntimeConfig, SidecarChild), Strin
             }
         }
     });
-    Ok((runtime_from_handshake(handshake), SidecarChild::Release(child)))
+    Ok((
+        runtime_from_handshake(handshake),
+        SidecarChild::Release(child),
+    ))
 }
 
 #[tauri::command]
@@ -176,9 +192,14 @@ fn runtime_config(state: State<'_, RuntimeState>) -> RuntimeConfig {
 }
 
 fn request_shutdown(config: &RuntimeConfig) {
-    let address = config.api_base.trim_start_matches("http://").trim_end_matches('/');
+    let address = config
+        .api_base
+        .trim_start_matches("http://")
+        .trim_end_matches('/');
     if let Ok(mut stream) = TcpStream::connect_timeout(
-        &address.parse().unwrap_or_else(|_| "127.0.0.1:0".parse().unwrap()),
+        &address
+            .parse()
+            .unwrap_or_else(|_| "127.0.0.1:0".parse().unwrap()),
         Duration::from_millis(500),
     ) {
         let request = format!(
@@ -220,7 +241,7 @@ pub fn run() {
             if let Some(state) = app_handle.try_state::<RuntimeState>() {
                 request_shutdown(&state.config);
                 if let Ok(mut guard) = state.child.lock() {
-                    if let Some(mut child) = guard.take() {
+                    if let Some(child) = guard.take() {
                         std::thread::sleep(Duration::from_millis(300));
                         child.kill();
                     }
@@ -236,8 +257,14 @@ mod tests {
 
     #[test]
     fn parses_only_ready_handshakes() {
-        assert!(parse_handshake(r#"{"event":"log","port":1,"token":"x","startup_id":"s","version":"2"}"#).is_none());
+        assert!(parse_handshake(
+            r#"{"event":"log","port":1,"token":"x","startup_id":"s","version":"2"}"#
+        )
+        .is_none());
         let parsed = parse_handshake(r#"{"event":"ready","port":43123,"token":"secret","startup_id":"start","version":"2.1.0"}"#).unwrap();
-        assert_eq!(runtime_from_handshake(parsed).api_base, "http://127.0.0.1:43123/");
+        assert_eq!(
+            runtime_from_handshake(parsed).api_base,
+            "http://127.0.0.1:43123/"
+        );
     }
 }
