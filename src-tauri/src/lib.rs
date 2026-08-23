@@ -86,6 +86,8 @@ fn sidecar_args(app: &AppHandle) -> Result<Vec<String>, String> {
         "tauri://localhost".into(),
         "--allowed-origin".into(),
         "http://tauri.localhost".into(),
+        "--allowed-origin".into(),
+        "http://127.0.0.1:1420".into(),
         "--parent-pid".into(),
         std::process::id().to_string(),
     ])
