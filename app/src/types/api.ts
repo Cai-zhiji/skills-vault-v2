@@ -52,6 +52,43 @@ export interface StatusPayload {
   catalog_state: CatalogState
 }
 
+export interface DesktopStatusPayload {
+  mode: "ready" | "onboarding"
+  active_vault: string | null
+  configured_vault: string | null
+  configured_vault_missing: boolean
+  recent_vaults: string[]
+  default_vault: string
+  config_root: string
+}
+
+export interface DesktopOnboardingPreview {
+  action: "create" | "open" | "import" | "migrate"
+  preview_token: string
+  plan: {
+    destination?: string
+    source?: string
+    paths?: string[]
+    facts?: string[]
+    legacy_history?: string[]
+    candidate?: {
+      path: string
+      kind: string
+      skill_count: number
+      estimated_bytes: number
+      conflicts: Record<string, string[]>
+    }
+  }
+}
+
+export interface DesktopOnboardingResult {
+  transaction_id: string
+  status: string
+  action: string
+  active_vault: string
+  imported_skills: string[]
+}
+
 export interface SkillCompatibility {
   level: string
   platforms: string[]

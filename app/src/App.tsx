@@ -2,6 +2,7 @@ import { lazy, Suspense } from "react"
 import { Navigate, Route, Routes } from "react-router-dom"
 
 import { AppShell } from "@/components/app-shell"
+import { DesktopGate } from "@/components/desktop-gate"
 
 const SkillsPage = lazy(() =>
   import("@/pages/skills-page").then((module) => ({ default: module.SkillsPage })),
@@ -24,16 +25,18 @@ function PageFallback() {
 
 export default function App() {
   return (
-    <Suspense fallback={<PageFallback />}>
-      <Routes>
-        <Route element={<AppShell />}>
-          <Route index element={<Navigate to="/skills" replace />} />
-          <Route path="skills" element={<SkillsPage />} />
-          <Route path="sources" element={<SourcesPage />} />
-          <Route path="records" element={<RecordsPage />} />
-          <Route path="*" element={<Navigate to="/skills" replace />} />
-        </Route>
-      </Routes>
-    </Suspense>
+    <DesktopGate>
+      <Suspense fallback={<PageFallback />}>
+        <Routes>
+          <Route element={<AppShell />}>
+            <Route index element={<Navigate to="/skills" replace />} />
+            <Route path="skills" element={<SkillsPage />} />
+            <Route path="sources" element={<SourcesPage />} />
+            <Route path="records" element={<RecordsPage />} />
+            <Route path="*" element={<Navigate to="/skills" replace />} />
+          </Route>
+        </Routes>
+      </Suspense>
+    </DesktopGate>
   )
 }

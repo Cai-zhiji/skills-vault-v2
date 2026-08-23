@@ -20,6 +20,8 @@ VAULT_ROOT = APP_ROOT.resolve()
 sys.path.insert(0, str(SERVER_ROOT))
 
 from skills_vault.core import Vault, VaultError, load_data  # noqa: E402
+from skills_vault.app_paths import AppPaths  # noqa: E402
+from skills_vault.desktop_state import DesktopState  # noqa: E402
 from skills_vault.services import (ServiceError, activate_profiles, compare_skills, copy_profile,
                                    create_original, create_original_apply, create_original_preview,
                                    delete_skills_apply, delete_skills_preview,
@@ -43,12 +45,25 @@ from skills_vault.services import (ServiceError, activate_profiles, compare_skil
                                    web_v2_migration_preview)  # noqa: E402
 
 
+DESKTOP_STATE = DesktopState(
+    AppPaths.for_development(APP_ROOT).config_root,
+    AppPaths.for_desktop(APP_ROOT).default_vault_root,
+)
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "SkillsVaultUI/2.0"
 
     @property
     def vault(self) -> Vault:
-        return Vault(VAULT_ROOT)
+        root = DESKTOP_STATE.active_vault_root()
+        if root is None:
+            raise ServiceError(
+                "vault_not_selected",
+                "请先创建、打开或迁移一个 Skills Vault",
+                {"onboarding_endpoint": "/api/desktop/status"},
+            )
+        return Vault(root)
 
     def send_json(self, payload: Any, status: int = HTTPStatus.OK) -> None:
         body = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
@@ -81,12 +96,16 @@ class Handler(BaseHTTPRequestHandler):
         try:
             self.validate_local_request()
             if parsed.path == "/api/health":
+                active_root = DESKTOP_STATE.active_vault_root()
                 self.send_json({
                     "status": "ok",
                     "version": "2.0.0",
-                    "vault_root": str(VAULT_ROOT),
+                    "vault_root": str(active_root) if active_root else None,
                     "frontend_built": (WEB_ROOT / "index.html").is_file(),
                 })
+                return
+            if parsed.path == "/api/desktop/status":
+                self.send_json(DESKTOP_STATE.status())
                 return
             if parsed.path == "/api/status":
                 self.send_json(self.status_payload())
@@ -175,6 +194,21 @@ class Handler(BaseHTTPRequestHandler):
             body = self.read_json()
             if self.path == "/api/catalog/scan":
                 self.send_json(scan_catalog(self.vault))
+                return
+            if self.path == "/api/desktop/onboarding/preview":
+                self.send_json(
+                    DESKTOP_STATE.preview(
+                        str(body.get("action", "")),
+                        str(body.get("source_path", "")),
+                        str(body.get("destination", "")),
+                    )
+                )
+                return
+            if self.path == "/api/desktop/onboarding/apply":
+                self.send_json(
+                    DESKTOP_STATE.apply(str(body.get("preview_token", ""))),
+                    HTTPStatus.CREATED,
+                )
                 return
             if self.path == "/api/install/preview":
                 self.send_json(install_preview(self.vault, body.get("profiles") or self.vault.active_profiles()))
@@ -382,7 +416,7 @@ class Handler(BaseHTTPRequestHandler):
         catalog = vault.catalog()
         state = load_data(vault.state_dir / "install-state.json", {"links": []})
         return {
-            "root": str(VAULT_ROOT),
+            "root": str(vault.root),
             "app_version": "2.0.0",
             "generated_at": catalog.get("generated_at"),
             "active_profiles": vault.active_profiles(),
@@ -436,7 +470,7 @@ class Handler(BaseHTTPRequestHandler):
         if not matches:
             raise ServiceError("not_found", "Skill not found")
         safe_name = skill_id.replace("/", "--")
-        guide_path = VAULT_ROOT / "docs" / "skill-guides" / f"{safe_name}.md"
+        guide_path = self.vault.root / "docs" / "skill-guides" / f"{safe_name}.md"
         entry = matches[0]
         template = skill_guide_template(entry)
         editable = entry.get("source_id") == "my"
@@ -445,7 +479,7 @@ class Handler(BaseHTTPRequestHandler):
                 "skill_id": skill_id,
                 "exists": True,
                 "editable": editable,
-                "path": str(guide_path.relative_to(VAULT_ROOT)),
+                "path": str(guide_path.relative_to(self.vault.root)),
                 "markdown": guide_path.read_text(encoding="utf-8"),
                 "template": template,
             }
@@ -458,7 +492,7 @@ class Handler(BaseHTTPRequestHandler):
             "skill_id": skill_id,
             "exists": False,
             "editable": editable,
-            "path": str(guide_path.relative_to(VAULT_ROOT)),
+            "path": str(guide_path.relative_to(self.vault.root)),
             "markdown": fallback,
             "template": template,
         }
@@ -508,30 +542,57 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> int:
-    global VAULT_ROOT, WEB_ROOT
+    global VAULT_ROOT, WEB_ROOT, DESKTOP_STATE
     parser = argparse.ArgumentParser(description="Serve the local Skills Vault UI and API")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument(
+        "--desktop-mode",
+        action="store_true",
+        help="Start even when no Vault has been selected yet",
+    )
+    parser.add_argument(
         "--vault-root",
-        default=os.environ.get("SKILLS_VAULT_ROOT", str(VAULT_ROOT)),
-        help="Path to the Skills Vault workspace (defaults to this project)",
+        default=os.environ.get("SKILLS_VAULT_ROOT"),
+        help="Path to a Skills Vault workspace",
     )
     parser.add_argument(
         "--static-root",
         default=str(WEB_ROOT),
         help="Path to the built React application",
     )
+    parser.add_argument(
+        "--desktop-config-root",
+        default=os.environ.get("SKILLS_VAULT_CONFIG_ROOT"),
+        help="Directory for desktop-only settings and operation records",
+    )
+    parser.add_argument(
+        "--default-vault-root",
+        default=None,
+        help="Suggested destination shown during first launch",
+    )
     args = parser.parse_args()
-    VAULT_ROOT = Path(args.vault_root).expanduser().resolve()
     WEB_ROOT = Path(args.static_root).expanduser().resolve()
-    required = [VAULT_ROOT / "registry.yaml", VAULT_ROOT / "profiles"]
-    missing = [str(path) for path in required if not path.exists()]
-    if missing:
-        parser.error("Invalid Vault data workspace; missing: " + ", ".join(missing))
+    desktop_paths = AppPaths.for_desktop(APP_ROOT)
+    development_paths = AppPaths.for_development(APP_ROOT)
+    config_root = Path(args.desktop_config_root).expanduser() if args.desktop_config_root else (
+        desktop_paths.config_root if args.desktop_mode else development_paths.config_root
+    )
+    default_vault = Path(args.default_vault_root).expanduser() if args.default_vault_root else desktop_paths.default_vault_root
+    DESKTOP_STATE = DesktopState(config_root, default_vault)
+    requested_vault = Path(args.vault_root).expanduser().resolve() if args.vault_root else (
+        None if args.desktop_mode else APP_ROOT.resolve()
+    )
+    if requested_vault:
+        try:
+            DESKTOP_STATE.select(requested_vault, remember=False)
+        except VaultError as exc:
+            parser.error(str(exc))
+    VAULT_ROOT = DESKTOP_STATE.active_vault_root() or default_vault.resolve()
     server = ThreadingHTTPServer((args.host, args.port), Handler)
-    print(f"Skills Vault UI: http://{args.host}:{args.port}/")
-    print(f"Vault data: {VAULT_ROOT}")
+    actual_port = server.server_address[1]
+    print(f"Skills Vault UI: http://{args.host}:{actual_port}/")
+    print(f"Vault data: {DESKTOP_STATE.active_vault_root() or 'not selected'}")
     print(f"Frontend: {WEB_ROOT}")
     print("Local API enabled — write operations require preview tokens and remain local to this vault.")
     try:
