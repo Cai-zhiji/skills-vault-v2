@@ -95,16 +95,17 @@
   - 打包前验证测试、版本和所需工具链。
   - _需求：R2、R7_
 
-- [ ] 6.3 建立 Tauri 安装包输出
+- [x] 6.3 建立 Tauri 安装包输出
   - 实现 `npm run package` 和版本化产物目录、校验和与构建元数据。
   - 配置 macOS app/DMG、Windows NSIS、Ubuntu AppImage。
-  - 编排、产物目录和元数据已实现；当前 macOS 开发机缺少 Rust/Cargo，尚未生成首个 Tauri bundle。
+  - 当前 Apple Silicon Mac 已生成首个 `.app/.dmg`，并通过签名结构、架构、校验和与进程生命周期烟测。
   - _需求：R7_
 
 ## 里程碑 7：三平台验收与交付
 
 - [ ] 7.1 当前 macOS 回归与安装包验收
   - 验证创建、Web v2 迁移、平台同步、恢复和卸载数据保留。
+  - `.app/.dmg` 生成、DMG 挂载、ad-hoc 签名、实际启动和退出回收已通过；业务数据流程仍待隔离验收。
   - _需求：R7、R8、R9_
 
 - [ ] 7.2 Windows 原生验收

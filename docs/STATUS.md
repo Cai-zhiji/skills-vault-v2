@@ -18,16 +18,16 @@
 - [x] 建立根目录 `npm run dev`、`dev:web`、`test:all`、`package:diagnose` 与 `package` 跨平台入口。
 - [x] PyInstaller 6.22.2 已在当前 Apple Silicon Mac 成功生成并启动 sidecar。
 - [x] 当前全量验证通过：前端类型、Lint、2 项单测与生产构建；后端 57 项测试通过，其中 8 项真实数据集成测试按约定跳过。
-- [ ] Tauri Rust 壳尚未在当前机器编译；当前系统缺少 Rust/Cargo。
-- [ ] macOS `.app/.dmg`、Windows NSIS 与 Ubuntu AppImage 尚未完成实体安装验收。
+- [x] 当前 Apple Silicon Mac 已安装 Rust/Cargo 1.98.0，Tauri Rust 壳编译与 1 项 Rust 单测通过。
+- [x] 已生成 macOS arm64 `.app/.dmg`，完成应用与 DMG 内签名结构、架构、SHA-256、实际启动及退出回收验收。
+- [ ] macOS 完整业务安装验收、Windows NSIS 与 Ubuntu AppImage 实体验收尚未完成。
 
 ## 下一步
 
-1. 在当前 Mac 安装 Rust 1.77.2+（推荐 rustup），先运行 `cargo test --manifest-path src-tauri/Cargo.toml`，处理任何 Rust API/编译问题。
-2. 运行 `npm run dev` 验证 Tauri 窗口、原生目录选择、首次启动和退出时 sidecar 回收。
-3. 运行 `npm run package` 生成未签名 macOS `.app/.dmg`，完成创建 Vault、Web v2 迁移、平台部署和卸载后数据保留烟测。
-4. 分别在 Windows 与 Ubuntu 原生环境执行相同打包流程，完成中文/空格路径、非管理员安装、managed-copy 和 AppImage 验收。
-5. 对外分发前补齐 macOS Developer ID/公证与 Windows 代码签名；在此之前构建元数据必须保持 `internal/testing`。
+1. 从 macOS DMG 安装到隔离位置，完成创建 Vault、Web v2 迁移、平台部署、恢复和卸载后数据保留烟测。
+2. 决定 macOS Developer ID 签名下的 Python sidecar 方案；当前内部测试包使用 ad-hoc 签名并关闭 Hardened Runtime。
+3. 分别在 Windows 与 Ubuntu 原生环境执行相同打包流程，完成中文/空格路径、非管理员安装、managed-copy 和 AppImage 验收。
+4. 对外分发前补齐 macOS Developer ID/公证与 Windows 代码签名；在此之前构建元数据必须保持 `internal/testing`。
 
 ## 关键约束 / 约定
 
@@ -39,5 +39,7 @@
 - macOS/Linux 默认部署 symlink，Windows 默认 managed-copy，并使用指纹保护用户在目标目录中的修改。
 - 所有重要写操作保留 `preview → apply → transaction → recovery`。
 - PyInstaller 不跨操作系统编译；三个平台必须分别构建和验收。
-- 当前 Mac 有 Node 22、npm 10、Python 3.9、Xcode Command Line Tools 和可用的项目本地 PyInstaller；缺少 Rust/Cargo 与完整 Xcode。
+- 当前 Mac 有 Node 22、npm 10、Python 3.9、Rust/Cargo 1.98.0、Xcode Command Line Tools 和项目本地 PyInstaller；无需完整 Xcode 即可生成当前内部测试 DMG。
+- 当前 macOS 内部测试包使用 ad-hoc 签名；为兼容 PyInstaller one-file 解压运行，关闭 Hardened Runtime。该设置不代表公开分发方案。
+- 当前 macOS arm64 产物位于 `dist/packages/2.1.0/macos-arm64/`，DMG SHA-256 为 `85b5968e543d6ca8043c3882d0c8daa555d3ec78f4ee3fa59a798224027a2d08`。
 - 本地 Git only，永不自动 push。

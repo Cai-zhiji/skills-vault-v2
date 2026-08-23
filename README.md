@@ -46,7 +46,7 @@ npm run package
 
 `npm run package` 会检查工具链、运行全部测试、在项目本地 `.venv-build` 安装固定版本的 PyInstaller、生成当前平台 sidecar，再调用 Tauri 输出安装包、校验和与构建元数据。产物位于 `dist/packages/<version>/<platform>-<arch>/`。
 
-PyInstaller 不能跨操作系统构建，因此 macOS `.app/.dmg`、Windows NSIS 与 Ubuntu AppImage 必须分别在对应系统执行。未签名产物只用于内部测试；公开分发前仍需完成 macOS 公证或 Windows 代码签名。
+PyInstaller 不能跨操作系统构建，因此 macOS `.app/.dmg`、Windows NSIS 与 Ubuntu AppImage 必须分别在对应系统执行。未经开发者身份签名或公证的产物只用于内部测试；公开分发前仍需完成 macOS Developer ID 签名与公证或 Windows 代码签名。
 
 ## 主要能力
 

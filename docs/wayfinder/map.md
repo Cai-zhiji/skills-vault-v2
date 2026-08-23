@@ -38,7 +38,7 @@
 
 ## Decision frontier
 
-跨平台桌面化的产品与架构方向已经闭合；下一前沿是任务拆分以及 macOS、Windows、Ubuntu 的真实安装验证。没有证据的问题继续留在战争迷雾中，不提前造票。
+跨平台桌面化的产品与架构方向已经闭合；macOS 内部测试实体包已生成。下一前沿是 [确定 macOS 正式签名下的 sidecar 打包方式](tickets/110-macos-signed-sidecar.md)，以及 macOS、Windows、Ubuntu 的真实业务安装验证。没有证据的问题继续留在战争迷雾中，不提前造票。
 
 ## Not yet specified
 
