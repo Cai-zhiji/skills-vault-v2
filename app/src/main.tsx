@@ -6,6 +6,7 @@ import { Toaster } from "sonner"
 
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { OperationProvider } from "@/lib/operation-provider"
+import { initializeRuntime } from "@/lib/runtime"
 
 import App from "./App"
 import "./index.css"
@@ -20,17 +21,22 @@ const queryClient = new QueryClient({
   },
 })
 
-createRoot(document.getElementById("root")!).render(
-  <StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <OperationProvider>
-          <BrowserRouter>
-            <App />
-          </BrowserRouter>
-          <Toaster position="bottom-center" richColors closeButton />
-        </OperationProvider>
-      </TooltipProvider>
-    </QueryClientProvider>
-  </StrictMode>,
-)
+async function start() {
+  await initializeRuntime()
+  createRoot(document.getElementById("root")!).render(
+    <StrictMode>
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <OperationProvider>
+            <BrowserRouter>
+              <App />
+            </BrowserRouter>
+            <Toaster position="bottom-center" richColors closeButton />
+          </OperationProvider>
+        </TooltipProvider>
+      </QueryClientProvider>
+    </StrictMode>,
+  )
+}
+
+void start()

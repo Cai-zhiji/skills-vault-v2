@@ -36,7 +36,10 @@ export async function apiRequest<T>(
 ): Promise<T> {
   const headers = new Headers(options?.headers)
   if (options?.body) headers.set("Content-Type", "application/json")
-  const response = await fetch(path, {
+  const runtime = runtimeConfig()
+  if (runtime?.token) headers.set("Authorization", `Bearer ${runtime.token}`)
+  const requestUrl = runtime ? new URL(path, runtime.apiBase).toString() : path
+  const response = await fetch(requestUrl, {
     ...options,
     headers,
   })
@@ -67,3 +70,4 @@ export const api = {
     })
   },
 }
+import { runtimeConfig } from "@/lib/runtime"

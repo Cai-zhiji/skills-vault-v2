@@ -14,6 +14,7 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { ApiError, api } from "@/lib/api"
+import { runtimeStartupError } from "@/lib/runtime"
 import type {
   DesktopOnboardingPreview,
   DesktopOnboardingResult,
@@ -95,11 +96,13 @@ export function DesktopGate({ children }: { children: ReactNode }) {
     )
   }
   if (statusQuery.isError || !statusQuery.data) {
+    const startupError = runtimeStartupError()
     return (
       <main className="grid min-h-screen place-items-center p-6">
         <div className="max-w-md rounded-lg border bg-background p-6 text-center">
           <h1 className="text-lg font-semibold">无法连接本地服务</h1>
           <p className="mt-2 text-sm text-muted-foreground">请重新启动应用；你的 Vault 数据不会受到影响。</p>
+          {startupError ? <p className="mt-3 break-words font-data text-xs text-destructive">{startupError.message}</p> : null}
           <Button className="mt-5" onClick={() => statusQuery.refetch()}>重新连接</Button>
         </div>
       </main>

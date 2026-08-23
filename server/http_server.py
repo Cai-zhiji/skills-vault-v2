@@ -6,7 +6,9 @@ import argparse
 import json
 import mimetypes
 import os
+import secrets
 import sys
+import threading
 import urllib.parse
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -22,6 +24,7 @@ sys.path.insert(0, str(SERVER_ROOT))
 from skills_vault.core import Vault, VaultError, load_data  # noqa: E402
 from skills_vault.app_paths import AppPaths  # noqa: E402
 from skills_vault.desktop_state import DesktopState  # noqa: E402
+from skills_vault.runtime import session_token, start_parent_monitor, startup_id  # noqa: E402
 from skills_vault.services import (ServiceError, activate_profiles, compare_skills, copy_profile,
                                    create_original, create_original_apply, create_original_preview,
                                    delete_skills_apply, delete_skills_preview,
@@ -49,6 +52,9 @@ DESKTOP_STATE = DesktopState(
     AppPaths.for_development(APP_ROOT).config_root,
     AppPaths.for_desktop(APP_ROOT).default_vault_root,
 )
+SESSION_TOKEN: str | None = None
+ALLOWED_ORIGINS: set[str] = set()
+STARTUP_ID: str | None = None
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -73,8 +79,17 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; img-src 'self' data:; font-src 'self'")
+        self.send_cors_headers()
         self.end_headers()
         self.wfile.write(body)
+
+    def send_cors_headers(self) -> None:
+        origin = self.headers.get("Origin")
+        if SESSION_TOKEN and origin in ALLOWED_ORIGINS:
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Access-Control-Allow-Headers", "Authorization, Content-Type")
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, OPTIONS")
+            self.send_header("Vary", "Origin")
 
     def validate_local_request(self, write: bool = False) -> None:
         host_header = self.headers.get("Host", "").lower()
@@ -84,12 +99,34 @@ class Handler(BaseHTTPRequestHandler):
             host = host_header.rsplit(":", 1)[0] if host_header.count(":") == 1 else host_header
         if host not in {"127.0.0.1", "localhost", "::1"}:
             raise ServiceError("invalid_host", "Skills Vault only accepts local requests")
+        if SESSION_TOKEN and self.path != "/api/health":
+            authorization = self.headers.get("Authorization", "")
+            expected = f"Bearer {SESSION_TOKEN}"
+            if not secrets.compare_digest(authorization, expected):
+                raise ServiceError("sidecar_session_invalid", "桌面会话无效或已过期")
         if write:
             origin = self.headers.get("Origin")
             if origin:
+                if SESSION_TOKEN and origin not in ALLOWED_ORIGINS:
+                    raise ServiceError("invalid_origin", "Write request origin is not allowed")
                 parsed = urllib.parse.urlparse(origin)
-                if parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
+                if not SESSION_TOKEN and parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
                     raise ServiceError("invalid_origin", "Write request origin is not local")
+
+    def do_OPTIONS(self) -> None:  # noqa: N802
+        try:
+            host_header = self.headers.get("Host", "").lower()
+            host = host_header.rsplit(":", 1)[0] if host_header.count(":") == 1 else host_header
+            if host not in {"127.0.0.1", "localhost", "::1"}:
+                raise ServiceError("invalid_host", "Skills Vault only accepts local requests")
+            origin = self.headers.get("Origin")
+            if SESSION_TOKEN and origin not in ALLOWED_ORIGINS:
+                raise ServiceError("invalid_origin", "Request origin is not allowed")
+            self.send_response(HTTPStatus.NO_CONTENT)
+            self.send_cors_headers()
+            self.end_headers()
+        except VaultError as exc:
+            self.send_json({"error": str(exc), "code": getattr(exc, "code", "vault_error")}, HTTPStatus.FORBIDDEN)
 
     def do_GET(self) -> None:  # noqa: N802
         parsed = urllib.parse.urlparse(self.path)
@@ -106,6 +143,15 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if parsed.path == "/api/desktop/status":
                 self.send_json(DESKTOP_STATE.status())
+                return
+            if parsed.path == "/api/runtime":
+                self.send_json({
+                    "version": "2.1.0",
+                    "startup_id": STARTUP_ID,
+                    "pid": os.getpid(),
+                    "desktop": bool(SESSION_TOKEN),
+                    "vault": DESKTOP_STATE.status(),
+                })
                 return
             if parsed.path == "/api/status":
                 self.send_json(self.status_payload())
@@ -172,6 +218,9 @@ class Handler(BaseHTTPRequestHandler):
                 self.serve_static("/skill.html")
                 return
             self.serve_static(parsed.path)
+        except ServiceError as exc:
+            status = HTTPStatus.UNAUTHORIZED if exc.code == "sidecar_session_invalid" else HTTPStatus.FORBIDDEN
+            self.send_json({"error": str(exc), "code": exc.code, "details": exc.details}, status)
         except VaultError as exc:
             self.send_json({"error": str(exc), "code": getattr(exc, "code", "vault_error"), "details": getattr(exc, "details", {})}, HTTPStatus.UNPROCESSABLE_ENTITY)
         except Exception as exc:
@@ -194,6 +243,10 @@ class Handler(BaseHTTPRequestHandler):
             body = self.read_json()
             if self.path == "/api/catalog/scan":
                 self.send_json(scan_catalog(self.vault))
+                return
+            if self.path == "/api/runtime/shutdown":
+                self.send_json({"status": "stopping", "startup_id": STARTUP_ID})
+                threading.Thread(target=self.server.shutdown, name="api-shutdown", daemon=True).start()
                 return
             if self.path == "/api/desktop/onboarding/preview":
                 self.send_json(
@@ -368,6 +421,9 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 return
             self.send_json({"error": "Not found", "code": "not_found"}, HTTPStatus.NOT_FOUND)
+        except ServiceError as exc:
+            status = HTTPStatus.UNAUTHORIZED if exc.code == "sidecar_session_invalid" else HTTPStatus.UNPROCESSABLE_ENTITY
+            self.send_json({"error": str(exc), "code": exc.code, "details": exc.details}, status)
         except VaultError as exc:
             self.send_json({"error": str(exc), "code": getattr(exc, "code", "vault_error"), "details": getattr(exc, "details", {})}, HTTPStatus.UNPROCESSABLE_ENTITY)
         except Exception as exc:
@@ -386,6 +442,9 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(save_annotation(self.vault, skill_id, body))
                 return
             self.send_json({"error": "Not found", "code": "not_found"}, HTTPStatus.NOT_FOUND)
+        except ServiceError as exc:
+            status = HTTPStatus.UNAUTHORIZED if exc.code == "sidecar_session_invalid" else HTTPStatus.UNPROCESSABLE_ENTITY
+            self.send_json({"error": str(exc), "code": exc.code, "details": exc.details}, status)
         except VaultError as exc:
             self.send_json({"error": str(exc), "code": getattr(exc, "code", "vault_error")}, HTTPStatus.UNPROCESSABLE_ENTITY)
 
@@ -542,8 +601,9 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> int:
-    global VAULT_ROOT, WEB_ROOT, DESKTOP_STATE
+    global VAULT_ROOT, WEB_ROOT, DESKTOP_STATE, SESSION_TOKEN, ALLOWED_ORIGINS, STARTUP_ID
     parser = argparse.ArgumentParser(description="Serve the local Skills Vault UI and API")
+    parser.add_argument("--version", action="version", version="2.1.0")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument(
@@ -571,6 +631,18 @@ def main() -> int:
         default=None,
         help="Suggested destination shown during first launch",
     )
+    parser.add_argument(
+        "--session-token",
+        default=None,
+        help="Bearer token for desktop API calls; generated in desktop mode when omitted",
+    )
+    parser.add_argument(
+        "--allowed-origin",
+        action="append",
+        default=[],
+        help="Exact desktop webview Origin allowed to call the API",
+    )
+    parser.add_argument("--parent-pid", type=int, default=None)
     args = parser.parse_args()
     WEB_ROOT = Path(args.static_root).expanduser().resolve()
     desktop_paths = AppPaths.for_desktop(APP_ROOT)
@@ -589,8 +661,20 @@ def main() -> int:
         except VaultError as exc:
             parser.error(str(exc))
     VAULT_ROOT = DESKTOP_STATE.active_vault_root() or default_vault.resolve()
+    SESSION_TOKEN = args.session_token or (session_token() if args.desktop_mode else None)
+    ALLOWED_ORIGINS = set(args.allowed_origin or [])
+    STARTUP_ID = startup_id()
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     actual_port = server.server_address[1]
+    start_parent_monitor(args.parent_pid, server.shutdown)
+    print(json.dumps({
+        "event": "ready",
+        "port": actual_port,
+        "token": SESSION_TOKEN,
+        "startup_id": STARTUP_ID,
+        "pid": os.getpid(),
+        "version": "2.1.0",
+    }, separators=(",", ":")), flush=True)
     print(f"Skills Vault UI: http://{args.host}:{actual_port}/")
     print(f"Vault data: {DESKTOP_STATE.active_vault_root() or 'not selected'}")
     print(f"Frontend: {WEB_ROOT}")
