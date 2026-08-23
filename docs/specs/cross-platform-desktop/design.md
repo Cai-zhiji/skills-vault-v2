@@ -112,6 +112,32 @@ sidecar 不使用固定端口，也不写传统 PID 文件。Tauri 是桌面模�
 
 新增独立 `vault.json` 或等价版本文件，至少记录 `schema_version`、`created_with` 和 `migrated_at`。应用版本与 Vault schema 分开演进，旧应用不得打开更高 schema 并继续写入。
 
+### 4.4 首次启动与导入向导
+
+桌面应用在没有有效 `vault_root` 时展示四个入口：
+
+1. **创建新 Vault**：默认建议用户可见的 Documents 目录，允许自定义；复制最小模板，不要求 Git。
+2. **打开已有 Skills Vault**：校验 schema 后原地使用；若 schema 较旧，进入迁移 Preview。
+3. **导入 Skills 仓库或文件夹**：只读扫描所有 `SKILL.md`，再选择作为来源或作为原创 Skill 导入。
+4. **迁移 Web v2 Vault**：识别代码与数据同根的现有 v2 项目，复制到独立 Vault 后重建可重建状态。
+
+目录识别返回统一 `VaultCandidate`：类型、路径、schema、是否 Git 仓库、Skill 数量、无效项、嵌套项、冲突、预计复制大小和建议动作。
+
+“作为来源”导入时，目标是 `sources/<source-id>/`：Git 仓库完整复制并保留 `.git`，非 Git 文件夹复制为 `local-copy` 来源；来源默认 `unreviewed`。用户要编辑来源 Skill 时仍通过 derive 进入 `my-skills/`。
+
+“作为我的 Skills”导入时，只复制用户确认的 Skill 目录到 `my-skills/`，不携带外层仓库控制文件；每个目标计算指纹并逐项检查名称冲突。
+
+### 4.5 Web v2 迁移
+
+Web v2 迁移默认创建独立 Vault，原地打开仅作为兼容选项。迁移复制：
+
+- `registry.yaml`、`lock.yaml`、`profiles/`、`annotations/`；
+- `my-skills/`、`docs/skill-guides/`；
+- `sources/` 及来源自身 Git 历史；
+- 可解释的事务、更新报告和备份，统一标记为 legacy/history。
+
+迁移不直接复制活动 `catalog/`、PID、端口、日志、Preview token 和 `install-state.json`。新 Vault 扫描后比较 Skill ID 与内容指纹；平台部署重指向必须使用独立的安装 Preview/Apply。迁移全程只复制，旧 Web 项目作为回滚副本保持不变。
+
 ## 5. 平台与部署适配
 
 ### 5.1 PlatformAdapter
@@ -189,6 +215,10 @@ sidecar 使用随机高熵会话令牌。桌面请求携带 `Authorization: Bear
 - `POST /api/dependencies/install/apply`；
 - `POST /api/vault/migration/preview`；
 - `POST /api/vault/migration/apply`。
+- `POST /api/vault/candidates/inspect`：只读识别已有 Vault、Git Skills 仓库或普通目录；
+- `POST /api/vault/create/preview` 与 `POST /api/vault/create/apply`；
+- `POST /api/vault/import/preview` 与 `POST /api/vault/import/apply`；
+- `POST /api/skills/original/preview`：补齐原创 Skill 创建的写前预览。
 
 继续使用统一错误 `{ code, error, details }`。新增核心错误包括 `dependency_missing`、`unsupported_platform`、`deployment_user_modified`、`vault_schema_newer` 和 `sidecar_session_invalid`。
 
