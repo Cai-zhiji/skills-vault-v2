@@ -8,6 +8,7 @@ import {
   GitBranch,
   GitPullRequestArrow,
   Link2,
+  PackageCheck,
   Plus,
   RefreshCw,
   ShieldCheck,
@@ -55,6 +56,8 @@ import { useOperation } from "@/lib/operation-context"
 import { cn } from "@/lib/utils"
 import type {
   ApplyResponse,
+  DependenciesPayload,
+  DependencyInstallPreview,
   PreviewTokenResponse,
   SourceRow,
   UpdatePreview,
@@ -106,6 +109,8 @@ export function SourcesPage() {
   const [sourceUrl, setSourceUrl] = useState("")
   const [branch, setBranch] = useState("main")
   const [addPreview, setAddPreview] = useState<SourceAddPreview | null>(null)
+  const [dependenciesOpen, setDependenciesOpen] = useState(false)
+  const [dependencyPreview, setDependencyPreview] = useState<DependencyInstallPreview | null>(null)
   const handledAction = useRef(false)
   const queryClient = useQueryClient()
   const { runOperation, operation } = useOperation()
@@ -113,6 +118,10 @@ export function SourcesPage() {
   const sourcesQuery = useQuery({
     queryKey: ["sources"],
     queryFn: () => api.get<SourceRow[]>("/api/sources"),
+  })
+  const dependenciesQuery = useQuery({
+    queryKey: ["dependencies"],
+    queryFn: () => api.get<DependenciesPayload>("/api/dependencies"),
   })
 
   const refresh = async () => {
@@ -122,7 +131,56 @@ export function SourcesPage() {
       queryClient.invalidateQueries({ queryKey: ["skills"] }),
       queryClient.invalidateQueries({ queryKey: ["selection"] }),
       queryClient.invalidateQueries({ queryKey: ["transactions"] }),
+      queryClient.invalidateQueries({ queryKey: ["dependencies"] }),
     ])
+  }
+
+  const refreshDependencies = async () => {
+    const result = await runOperation(
+      "dependencies.refresh",
+      "重新检测依赖",
+      "离线检查 Git、Node、npm 与 npx",
+      () => api.post<DependenciesPayload>("/api/dependencies/refresh"),
+      (value) => `依赖检测完成：${value.platform} / ${value.architecture}`,
+    )
+    if (result) queryClient.setQueryData(["dependencies"], result)
+  }
+
+  const previewDependencyInstall = async (dependency: "git" | "node") => {
+    const result = await runOperation(
+      "dependency.install.preview",
+      "预览依赖安装",
+      "检查可信安装提供者、命令与权限影响",
+      () =>
+        api.post<DependencyInstallPreview>("/api/dependencies/install/preview", {
+          dependency,
+        }),
+      (value) => `${value.label} 安装 Preview 已生成`,
+    )
+    if (result) setDependencyPreview(result)
+  }
+
+  const applyDependencyInstall = async () => {
+    if (!dependencyPreview) return
+    if (!dependencyPreview.can_execute) {
+      window.open(dependencyPreview.official_url, "_blank", "noopener,noreferrer")
+      setDependencyPreview(null)
+      return
+    }
+    const result = await runOperation(
+      "dependency.install.apply",
+      `安装 ${dependencyPreview.label}`,
+      `通过 ${dependencyPreview.provider} 执行已确认命令`,
+      () =>
+        api.post<ApplyResponse>("/api/dependencies/install/apply", {
+          preview_token: dependencyPreview.preview_token,
+        }),
+      () => `${dependencyPreview.label} 安装命令已完成`,
+    )
+    if (result) {
+      setDependencyPreview(null)
+      await refreshDependencies()
+    }
   }
 
   const checkUpdates = async () => {
@@ -246,6 +304,10 @@ export function SourcesPage() {
     [updatePreview],
   )
   const checking = operation.key === "updates.check" && operation.state === "running"
+  const dependencies = dependenciesQuery.data?.dependencies || []
+  const dependencyById = new Map(dependencies.map((row) => [row.id, row]))
+  const selectedDependency = addKind === "git" ? dependencyById.get("git") : dependencyById.get("npx")
+  const sourceDependencyReady = selectedDependency?.status === "available" || selectedDependency?.status === "unverified"
 
   return (
     <div className="page-stack">
@@ -260,6 +322,9 @@ export function SourcesPage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={() => setDependenciesOpen(true)}>
+            <PackageCheck /> 依赖中心
+          </Button>
           <Button variant="outline" onClick={() => setAddOpen(true)}>
             <Plus /> 添加来源
           </Button>
@@ -428,19 +493,110 @@ export function SourcesPage() {
                 <p className="mt-2 text-muted-foreground">来源 {addPreview.source_id} 已通过检查，可确认安装。</p>
               </div>
             )}
+            {!sourceDependencyReady && (
+              <div className="border border-[var(--warning)]/30 bg-[var(--warning)]/[0.06] p-3 text-xs">
+                <div className="flex items-center gap-2 font-medium text-[var(--warning)]">
+                  <AlertTriangle className="size-4" /> 缺少 {addKind === "git" ? "Git" : "Node.js / npx"}
+                </div>
+                <p className="mt-2 text-muted-foreground">应用仍可使用本地能力；安装依赖后再添加这个来源。</p>
+                <Button className="mt-3" size="sm" variant="outline" onClick={() => setDependenciesOpen(true)}>
+                  打开依赖中心
+                </Button>
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setAddOpen(false)}>取消</Button>
             {addPreview ? (
               <Button onClick={() => void applyAdd()}><Plus /> 添加来源</Button>
             ) : (
-              <Button onClick={() => void previewAdd()} disabled={!sourceId.trim() || !sourceUrl.trim()}>
+              <Button onClick={() => void previewAdd()} disabled={!sourceId.trim() || !sourceUrl.trim() || !sourceDependencyReady}>
                 <RefreshCw /> 检查来源
               </Button>
             )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <Dialog open={dependenciesOpen} onOpenChange={setDependenciesOpen}>
+        <DialogContent className="sm:max-w-[620px]">
+          <DialogHeader>
+            <DialogTitle className="font-label text-2xl">依赖中心</DialogTitle>
+            <DialogDescription>
+              检测完全离线；只有确认安装 Preview 后才会调用系统包管理器。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[55vh] space-y-3 overflow-y-auto pr-1">
+            {dependencies.map((dependency) => (
+              <div className="rounded-xl border border-border/70 p-4" key={dependency.id}>
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="font-medium">{dependency.label}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {dependency.capabilities.join("；")}
+                    </p>
+                  </div>
+                  <StatusPill
+                    status={dependency.status === "available" ? "safe" : dependency.status === "unverified" ? "warning" : "fault"}
+                  >
+                    {dependency.status}
+                  </StatusPill>
+                </div>
+                {(dependency.version || dependency.path) && (
+                  <p className="mt-3 break-all font-data text-[10px] text-muted-foreground">
+                    {[dependency.version, dependency.path].filter(Boolean).join(" · ")}
+                  </p>
+                )}
+                {dependency.status === "missing" && ["git", "node", "npm", "npx"].includes(dependency.id) && (
+                  <Button
+                    className="mt-3"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void previewDependencyInstall(dependency.id === "git" ? "git" : "node")}
+                  >
+                    查看安装方案
+                  </Button>
+                )}
+              </div>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => void refreshDependencies()}>
+              <RefreshCw /> 重新检测
+            </Button>
+            <Button onClick={() => setDependenciesOpen(false)}>完成</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog
+        open={Boolean(dependencyPreview)}
+        onOpenChange={(open) => !open && setDependencyPreview(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="font-label text-2xl">
+              安装 {dependencyPreview?.label}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {dependencyPreview?.can_execute
+                ? `将通过 ${dependencyPreview.provider} 执行以下命令。`
+                : "当前平台需要手动安装，应用不会自动提权。"}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {dependencyPreview?.display_command && (
+            <code className="block break-all rounded-lg bg-muted p-3 text-xs">
+              {dependencyPreview.display_command}
+            </code>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void applyDependencyInstall()}>
+              {dependencyPreview?.can_execute ? "确认安装" : "打开官方说明"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

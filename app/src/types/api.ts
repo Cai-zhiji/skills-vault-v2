@@ -179,6 +179,37 @@ export interface CreateOriginalPreview {
   template: string
 }
 
+export interface DependencyRow {
+  id: string
+  label: string
+  status: "available" | "missing" | "outdated" | "broken" | "unverified" | "checking"
+  path: string | null
+  version: string | null
+  capabilities: string[]
+  official_url: string
+  notes?: string[]
+}
+
+export interface DependenciesPayload {
+  platform: string
+  architecture: string
+  dependencies: DependencyRow[]
+  installers: Array<{ id: string; path: string }>
+  offline: boolean
+}
+
+export interface DependencyInstallPreview extends PreviewTokenResponse {
+  dependency: string
+  label: string
+  provider: string | null
+  command: string[]
+  display_command: string
+  can_execute: boolean
+  requires_elevation: boolean
+  official_url: string
+  notes: string[]
+}
+
 export interface SelectionPayload {
   active_profiles: string[]
   managed: boolean

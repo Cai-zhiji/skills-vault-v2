@@ -26,6 +26,11 @@ from .core import (
     write_data,
 )
 from .deployment import legacy_links, remove_deployment, state_deployments
+from .dependencies import (
+    dependency_install_plan,
+    dependency_status,
+    execute_dependency_install,
+)
 from .migrations import (
     apply_import,
     apply_web_v2_migration,
@@ -156,6 +161,56 @@ def skill_guide_template(skill: Dict[str, Any]) -> str:
 
 def inspect_vault_candidate(path: str) -> Dict[str, Any]:
     return inspect_candidate(path)
+
+
+def dependencies_payload() -> Dict[str, Any]:
+    return dependency_status()
+
+
+def dependency_install_preview(vault: Vault, dependency: str) -> Dict[str, Any]:
+    plan = dependency_install_plan(dependency)
+    tx = transaction_id("dependency")
+    plan["transaction_id"] = tx
+    plan["preview_token"] = _issue_token(vault, "dependency.install", {"plan": plan})
+    return plan
+
+
+def dependency_install_apply(vault: Vault, token: str) -> Dict[str, Any]:
+    payload = _consume_token(vault, token, "dependency.install")
+    plan = payload.get("plan") or {}
+    tx = plan.get("transaction_id") or transaction_id("dependency")
+    try:
+        result = execute_dependency_install(plan)
+        result["transaction_id"] = tx
+        result["dependencies"] = dependency_status()["dependencies"]
+        _record_transaction(vault, tx, {"operation": "dependency.install", **result})
+        return result
+    except Exception as exc:
+        _record_transaction(
+            vault,
+            tx,
+            {
+                "operation": "dependency.install",
+                "status": "failed",
+                "dependency": plan.get("dependency"),
+                "provider": plan.get("provider"),
+                "error": str(exc),
+            },
+        )
+        raise
+
+
+def _require_dependency(dependency: str, capability: str) -> None:
+    if not current_platform().executable(dependency):
+        raise ServiceError(
+            "dependency_missing",
+            f"{dependency} 未安装，无法{capability}",
+            {
+                "dependency": dependency,
+                "capability": capability,
+                "dependencies_endpoint": "/api/dependencies",
+            },
+        )
 
 
 def vault_create_preview(vault: Vault, destination: str) -> Dict[str, Any]:
@@ -342,6 +397,7 @@ def skills_cli_source_preview(
     full_depth: bool = False,
     skills: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
+    _require_dependency("npx", "检查 Skills CLI 来源")
     source_id, source_url = _validate_external_source(source_id, source_url)
     if source_id in vault.registry.get("sources", {}):
         raise ServiceError("already_exists", f"来源已存在：{source_id}")
@@ -386,6 +442,7 @@ def skills_cli_source_preview(
 
 
 def skills_cli_source_apply(vault: Vault, token: str) -> Dict[str, Any]:
+    _require_dependency("npx", "安装 Skills CLI 来源")
     payload = _consume_token(vault, token, "source.skills-cli.add")
     plan = payload.get("plan") or {}
     source_id, source_url = _validate_external_source(plan.get("source_id", ""), plan.get("source_url", ""))
@@ -486,6 +543,7 @@ def git_source_preview(
     source_url: str,
     branch: str = "main",
 ) -> Dict[str, Any]:
+    _require_dependency("git", "检查 Git 来源")
     source_id, source_url = _validate_git_source(source_id, source_url)
     if source_id in vault.registry.get("sources", {}):
         raise ServiceError("already_exists", f"来源已存在：{source_id}")
@@ -519,6 +577,7 @@ def git_source_preview(
 
 
 def git_source_apply(vault: Vault, token: str) -> Dict[str, Any]:
+    _require_dependency("git", "安装 Git 来源")
     payload = _consume_token(vault, token, "source.git.add")
     plan = payload.get("plan") or {}
     source_id, source_url = _validate_git_source(plan.get("source_id", ""), plan.get("source_url", ""))
@@ -1545,6 +1604,14 @@ def scan_catalog(vault: Vault) -> Dict[str, Any]:
 
 
 def update_preview(vault: Vault, source_ids: Optional[Sequence[str]] = None) -> Dict[str, Any]:
+    selected = set(source_ids or vault.registry.get("sources", {}).keys())
+    selected_sources = [
+        source for source_id, source in vault.registry.get("sources", {}).items() if source_id in selected
+    ]
+    if any(vault.source_kind(source) == "git" for source in selected_sources):
+        _require_dependency("git", "检查 Git 来源更新")
+    if any(vault.source_kind(source) == "skills-cli" for source in selected_sources):
+        _require_dependency("npx", "检查 Skills CLI 来源更新")
     try:
         rows = update_plan(vault, source_ids)
     except VaultError as exc:
@@ -1581,6 +1648,10 @@ def update_preview(vault: Vault, source_ids: Optional[Sequence[str]] = None) -> 
 def update_apply(vault: Vault, token: str) -> Dict[str, Any]:
     payload = _consume_token(vault, token, "update")
     rows = payload.get("sources", [])
+    if any(row.get("source_kind", "git") == "git" for row in rows):
+        _require_dependency("git", "应用 Git 来源更新")
+    if any(row.get("source_kind") == "skills-cli" for row in rows):
+        _require_dependency("npx", "应用 Skills CLI 来源更新")
     changed = apply_updates(vault, rows, assume_yes=True)
     tx = transaction_id("update")
     _record_transaction(vault, tx, {"operation": "update", "status": "complete" if changed else "no-op", "sources": [r.get("source_id") for r in rows]})

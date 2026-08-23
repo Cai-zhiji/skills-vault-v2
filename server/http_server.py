@@ -23,6 +23,8 @@ from skills_vault.core import Vault, VaultError, load_data  # noqa: E402
 from skills_vault.services import (ServiceError, activate_profiles, compare_skills, copy_profile,
                                    create_original, create_original_apply, create_original_preview,
                                    delete_skills_apply, delete_skills_preview,
+                                   dependencies_payload, dependency_install_apply,
+                                   dependency_install_preview,
                                    derive_skill, git_source_apply, git_source_preview,
                                    install_apply, install_preview, list_backups,
                                    managed_selection_payload,
@@ -88,6 +90,9 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if parsed.path == "/api/status":
                 self.send_json(self.status_payload())
+                return
+            if parsed.path == "/api/dependencies":
+                self.send_json(dependencies_payload())
                 return
             if parsed.path == "/api/catalog/state":
                 self.send_json(personal_catalog_state(self.vault))
@@ -188,6 +193,15 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if self.path == "/api/vault/candidates/inspect":
                 self.send_json(inspect_vault_candidate(str(body.get("path", ""))))
+                return
+            if self.path == "/api/dependencies/refresh":
+                self.send_json(dependencies_payload())
+                return
+            if self.path == "/api/dependencies/install/preview":
+                self.send_json(dependency_install_preview(self.vault, str(body.get("dependency", ""))))
+                return
+            if self.path == "/api/dependencies/install/apply":
+                self.send_json(dependency_install_apply(self.vault, str(body.get("preview_token", ""))))
                 return
             if self.path == "/api/vault/create/preview":
                 self.send_json(vault_create_preview(self.vault, str(body.get("destination", ""))))
