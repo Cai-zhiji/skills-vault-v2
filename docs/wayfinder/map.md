@@ -20,6 +20,7 @@
 - 前端基础确定为 React + shadcn/ui + Tailwind CSS。见[确定前端组件基础](tickets/002-frontend-foundation.md)。
 - 视觉采用“本地仓库工作台”，以同步轨作为签名元素。见[确定视觉基线](tickets/003-visual-baseline.md)。
 - v2 使用独立新目录和本地 Git；完成迁移后，v2 根目录也是唯一活动数据工作区，旧项目仅作回滚副本。见[制定旧项目数据迁移方案](tickets/103-data-migration.md)。
+- 正式交付扩展为 Tauri 跨平台桌面应用，复用 React 与 Python sidecar；Git / Skills CLI 保持可选依赖。见[确定跨平台桌面交付方式](tickets/109-cross-platform-desktop-delivery.md)。
 
 ## Decisions resolved autonomously
 
@@ -37,7 +38,7 @@
 
 ## Decision frontier
 
-关键实现决定已经闭合。新的前沿是在真实浏览器验证后记录的交互或迁移问题；没有证据的问题继续留在战争迷雾中，不提前造票。
+跨平台桌面化的产品与架构方向已经闭合；下一前沿是任务拆分以及 macOS、Windows、Ubuntu 的真实安装验证。没有证据的问题继续留在战争迷雾中，不提前造票。
 
 ## Not yet specified
 
