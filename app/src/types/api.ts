@@ -168,6 +168,17 @@ export interface CreateOriginalResponse extends ApplyResponse {
   path: string
 }
 
+export interface CreateOriginalPreview {
+  transaction_id: string
+  preview_token: string
+  skill_id: string
+  name: string
+  description: string
+  destination: string
+  files: string[]
+  template: string
+}
+
 export interface SelectionPayload {
   active_profiles: string[]
   managed: boolean

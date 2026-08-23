@@ -54,6 +54,7 @@ import { cn } from "@/lib/utils"
 import type {
   ApplyResponse,
   CompareSkillsResponse,
+  CreateOriginalPreview,
   CreateOriginalResponse,
   DeleteSkillPreview,
   InstallPreview,
@@ -83,6 +84,7 @@ export function SkillsPage() {
   const [deletePreview, setDeletePreview] = useState<DeleteSkillPreview | null>(null)
   const [comparePair, setComparePair] = useState<{ left: string; right: string } | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
+  const [createPreview, setCreatePreview] = useState<CreateOriginalPreview | null>(null)
   const [newName, setNewName] = useState("")
   const [newDescription, setNewDescription] = useState("")
   const initializedSelection = useRef(false)
@@ -264,21 +266,37 @@ export function SkillsPage() {
     }
   }
 
-  const createOriginal = async () => {
+  const previewOriginal = async () => {
     if (!newName.trim()) return
     const result = await runOperation(
-      "skill.original",
-      "创建原创 Skill",
-      "创建目录与 SKILL.md，并重建 Catalog",
+      "skill.original.preview",
+      "预览原创 Skill",
+      "检查名称、目标目录和模板文件",
       () =>
-        api.post<CreateOriginalResponse>("/api/skills/original", {
+        api.post<CreateOriginalPreview>("/api/skills/original/preview", {
           name: newName.trim(),
           description: newDescription.trim(),
         }),
-      () => `已创建 my/${newName.trim()}`,
+      (value) => `Preview 已生成：${value.skill_id}`,
+    )
+    if (result) setCreatePreview(result)
+  }
+
+  const applyOriginal = async () => {
+    if (!createPreview) return
+    const result = await runOperation(
+      "skill.original.apply",
+      "创建原创 Skill",
+      "应用已确认的目录与模板 Preview",
+      () =>
+        api.post<CreateOriginalResponse>("/api/skills/original/apply", {
+          preview_token: createPreview.preview_token,
+        }),
+      (value) => `已创建 ${value.skill_id}`,
     )
     if (result) {
       setCreateOpen(false)
+      setCreatePreview(null)
       setNewName("")
       setNewDescription("")
       await refreshAll()
@@ -758,7 +776,13 @@ export function SkillsPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+      <Dialog
+        open={createOpen}
+        onOpenChange={(open) => {
+          setCreateOpen(open)
+          if (!open) setCreatePreview(null)
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle className="font-label text-2xl">创建原创 Skill</DialogTitle>
@@ -766,37 +790,71 @@ export function SkillsPage() {
               在当前 Vault 的 `my-skills` 中创建最小 SKILL.md，并立即加入 Catalog。
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <label htmlFor="new-skill-name" className="text-xs font-medium">
-                名称
-              </label>
-              <Input
-                id="new-skill-name"
-                value={newName}
-                onChange={(event) => setNewName(event.target.value)}
-                placeholder="my-new-skill"
-              />
+          {createPreview ? (
+            <div className="space-y-3 rounded-xl border border-border/70 bg-muted/35 p-4 text-sm">
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-muted-foreground">Skill</span>
+                <code>{createPreview.skill_id}</code>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-muted-foreground">模板</span>
+                <span>{createPreview.template}</span>
+              </div>
+              <div className="space-y-1">
+                <span className="text-muted-foreground">目标目录</span>
+                <code className="block break-all text-xs">{createPreview.destination}</code>
+              </div>
+              <div className="space-y-1">
+                <span className="text-muted-foreground">将创建</span>
+                <div>{createPreview.files.join("、")}</div>
+              </div>
             </div>
-            <div className="space-y-2">
-              <label htmlFor="new-skill-description" className="text-xs font-medium">
-                一句话说明
-              </label>
-              <Textarea
-                id="new-skill-description"
-                value={newDescription}
-                onChange={(event) => setNewDescription(event.target.value)}
-                placeholder="这个 Skill 解决什么问题…"
-              />
+          ) : (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <label htmlFor="new-skill-name" className="text-xs font-medium">
+                  名称
+                </label>
+                <Input
+                  id="new-skill-name"
+                  value={newName}
+                  onChange={(event) => setNewName(event.target.value)}
+                  placeholder="my-new-skill"
+                />
+              </div>
+              <div className="space-y-2">
+                <label htmlFor="new-skill-description" className="text-xs font-medium">
+                  一句话说明
+                </label>
+                <Textarea
+                  id="new-skill-description"
+                  value={newDescription}
+                  onChange={(event) => setNewDescription(event.target.value)}
+                  placeholder="这个 Skill 解决什么问题…"
+                />
+              </div>
             </div>
-          </div>
+          )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setCreateOpen(false)}>
-              取消
-            </Button>
-            <Button onClick={() => void createOriginal()} disabled={!newName.trim()}>
-              <FilePlus2 /> 创建并扫描
-            </Button>
+            {createPreview ? (
+              <>
+                <Button variant="outline" onClick={() => setCreatePreview(null)}>
+                  返回修改
+                </Button>
+                <Button onClick={() => void applyOriginal()}>
+                  <FilePlus2 /> 确认创建
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button variant="outline" onClick={() => setCreateOpen(false)}>
+                  取消
+                </Button>
+                <Button onClick={() => void previewOriginal()} disabled={!newName.trim()}>
+                  <FilePlus2 /> 预览创建
+                </Button>
+              </>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
