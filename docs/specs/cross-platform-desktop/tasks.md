@@ -2,13 +2,13 @@
 
 ## 里程碑 1：可移植领域核心
 
-- [ ] 1.1 建立平台与路径适配层
+- [x] 1.1 建立平台与路径适配层
   - 新增 `AppPaths` 与 `PlatformAdapter`，统一 OS、架构、Agent 目录和可执行文件发现。
   - 移除按 `/` 字符串识别平台和散布的 `Path.home()` 目标目录拼接。
   - 使用伪造平台覆盖 macOS、Windows、Linux 路径测试。
   - _需求：R1、R3、R4_
 
-- [ ] 1.2 建立可替换 Skill 部署器
+- [x] 1.2 建立可替换 Skill 部署器
   - 实现 symlink 与 managed-copy 的 plan/apply/verify/remove。
   - 将安装状态升级为 deployments schema，并兼容读取旧 links。
   - 目标被用户修改时阻止覆盖和删除。

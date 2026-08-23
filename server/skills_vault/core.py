@@ -680,15 +680,16 @@ class Vault:
         if conflicts:
             detail = "; ".join(f"{name}: {', '.join(ids)}" for name, ids in conflicts.items())
             raise VaultError(f"Profile has unresolved name conflicts for {platform}: {detail}")
-        installed = load_data(self.state_dir / "install-state.json", {"links": []}).get("links", [])
+        install_state = load_data(self.state_dir / "install-state.json", {"links": []})
+        installed = install_state.get("deployments", install_state.get("links", []))
 
         def installed_platform(item: Dict[str, Any]) -> Optional[str]:
             if item.get("platform") in ("codex", "claude"):
                 return item["platform"]
-            path = str(item.get("path", ""))
-            if "/.agents/skills/" in path:
+            parts = tuple(part.lower() for part in Path(str(item.get("path", ""))).parts)
+            if any(parts[index : index + 2] == (".agents", "skills") for index in range(max(0, len(parts) - 1))):
                 return "codex"
-            if "/.claude/skills/" in path:
+            if any(parts[index : index + 2] == (".claude", "skills") for index in range(max(0, len(parts) - 1))):
                 return "claude"
             return None
 

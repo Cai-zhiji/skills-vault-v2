@@ -25,7 +25,9 @@ from .core import (
     tree_fingerprint,
     write_data,
 )
+from .deployment import legacy_links, remove_deployment, state_deployments
 from .ops import apply_updates, create_backup, install, install_plan, restore_backup, update_plan
+from .platform_adapter import current_platform
 from .skills_cli import discover as discover_skills_cli_source
 from .skills_cli import install as install_skills_cli_source
 
@@ -38,6 +40,32 @@ class ServiceError(VaultError):
         super().__init__(message)
         self.code = code
         self.details = details or {}
+
+
+def _remove_selected_deployments(
+    state: Dict[str, Any], selected: set[str]
+) -> List[Dict[str, Any]]:
+    allowed_parents = {path.resolve() for path in current_platform().agent_skill_dirs().values()}
+    retained: List[Dict[str, Any]] = []
+    for item in state_deployments(state):
+        if item.get("skill_id") not in selected:
+            retained.append(item)
+            continue
+        destination = Path(str(item.get("path", "")))
+        if destination.parent.resolve() not in allowed_parents:
+            raise ServiceError(
+                "unsafe_deployment_path",
+                f"拒绝移除管理范围之外的部署：{destination}",
+            )
+        remove_deployment(item)
+    return retained
+
+
+def _write_deployment_state(path: Path, state: Dict[str, Any], deployments: List[Dict[str, Any]]) -> None:
+    state["schema_version"] = 2
+    state["deployments"] = deployments
+    state["links"] = legacy_links(deployments)
+    write_data(path, state)
 
 
 def transaction_id(prefix: str = "tx") -> str:
@@ -511,9 +539,7 @@ def source_policy_preview(vault: Vault, source_id: str, enabled: bool) -> Dict[s
         platform_rows[platform] = {"selected": direct, "effective": effective}
 
     install_state = load_data(vault.state_dir / "install-state.json", {"links": []})
-    installed_links = [
-        row for row in install_state.get("links", []) if row.get("skill_id") in source_ids
-    ]
+    installed_links = [row for row in state_deployments(install_state) if row.get("skill_id") in source_ids]
     tx = transaction_id("source")
     plan = {
         "transaction_id": tx,
@@ -630,7 +656,7 @@ def source_delete_preview(vault: Vault, source_id: str) -> Dict[str, Any]:
                 }
             )
     install_state = load_data(vault.state_dir / "install-state.json", {"links": []})
-    links = [item for item in install_state.get("links", []) if item.get("skill_id") in selected]
+    links = [item for item in state_deployments(install_state) if item.get("skill_id") in selected]
     annotations = vault.annotations.get("skills", {})
     annotation_ids = [skill_id for skill_id in skill_ids if skill_id in annotations]
     guides = [skill_id for skill_id in skill_ids if _guide_path(vault, skill_id).is_file()]
@@ -762,27 +788,10 @@ def source_delete_apply(vault: Vault, token: str) -> Dict[str, Any]:
 
         install_state_path = vault.state_dir / "install-state.json"
         install_state = load_data(install_state_path, {"schema_version": 1, "links": []})
-        retained_links = []
-        allowed_link_parents = {
-            (Path.home() / ".agents" / "skills").resolve(),
-            (Path.home() / ".claude" / "skills").resolve(),
-        }
-        for item in install_state.get("links", []):
-            if item.get("skill_id") not in skill_ids:
-                retained_links.append(item)
-                continue
-            link_path = Path(item.get("path", ""))
-            if link_path.is_symlink():
-                if link_path.parent.resolve() not in allowed_link_parents:
-                    raise ServiceError(
-                        "unsafe_link_path",
-                        f"拒绝移除管理范围之外的链接：{link_path}",
-                    )
-                link_path.unlink()
-        install_state["links"] = retained_links
+        retained_links = _remove_selected_deployments(install_state, skill_ids)
         install_state["updated_at"] = now_iso()
         install_state["last_source_delete_transaction"] = tx
-        write_data(install_state_path, install_state)
+        _write_deployment_state(install_state_path, install_state, retained_links)
         resulting_catalog = vault.scan()
     except Exception as exc:
         for item in reversed(moved):
@@ -889,7 +898,7 @@ def delete_skills_preview(vault: Vault, skill_ids: Sequence[str]) -> Dict[str, A
             reference_changes.append({"skill_id": owner_id, "fields": fields})
 
     install_state = load_data(vault.state_dir / "install-state.json", {"links": []})
-    links = [item for item in install_state.get("links", []) if item.get("skill_id") in selected]
+    links = [item for item in state_deployments(install_state) if item.get("skill_id") in selected]
     derivatives = [
         entry["id"]
         for entry in catalog.get("skills", [])
@@ -1015,24 +1024,10 @@ def delete_skills_apply(vault: Vault, token: str) -> Dict[str, Any]:
 
         install_state_path = vault.state_dir / "install-state.json"
         install_state = load_data(install_state_path, {"schema_version": 1, "links": []})
-        retained_links = []
-        allowed_link_parents = {
-            (Path.home() / ".agents" / "skills").resolve(),
-            (Path.home() / ".claude" / "skills").resolve(),
-        }
-        for item in install_state.get("links", []):
-            if item.get("skill_id") not in selected:
-                retained_links.append(item)
-                continue
-            link_path = Path(item.get("path", ""))
-            if link_path.is_symlink():
-                if link_path.parent.resolve() not in allowed_link_parents:
-                    raise ServiceError("unsafe_link_path", f"拒绝移除管理范围之外的链接：{link_path}")
-                link_path.unlink()
-        install_state["links"] = retained_links
+        retained_links = _remove_selected_deployments(install_state, selected)
         install_state["updated_at"] = now_iso()
         install_state["last_delete_transaction"] = tx
-        write_data(install_state_path, install_state)
+        _write_deployment_state(install_state_path, install_state, retained_links)
 
         tombstones = load_data(vault.deleted_skills_path, {"schema_version": 1, "skills": {}})
         rows = tombstones.setdefault("skills", {})

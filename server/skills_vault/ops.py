@@ -21,6 +21,14 @@ from .core import (
     run,
     write_data,
 )
+from .deployment import (
+    apply_deployment,
+    deployment_is_current,
+    legacy_links,
+    remove_deployment,
+    state_deployments,
+)
+from .platform_adapter import PlatformAdapter, current_platform
 from .skills_cli import update as update_skills_cli_source
 
 
@@ -495,15 +503,14 @@ def doctor(vault: Vault) -> Tuple[List[str], List[str]]:
         else:
             warnings.append(f"Optional executable not found: {program}")
     state = load_data(vault.state_dir / "install-state.json", {"links": []})
-    for link in state.get("links", []):
-        path = Path(link["path"])
-        target = Path(link["target"])
-        if not path.is_symlink():
-            errors.append(f"Managed skill link is missing or not a symlink: {path}")
-        elif path.resolve() != target.resolve():
-            errors.append(f"Managed skill link points to the wrong target: {path}")
+    for deployment in state_deployments(state):
+        path = Path(deployment["path"])
+        if deployment_is_current(deployment):
+            checks.append(f"managed {deployment.get('deployment_type', 'symlink')} ok: {path}")
         else:
-            checks.append(f"managed link ok: {path}")
+            errors.append(
+                f"Managed skill deployment is missing, changed, or points to the wrong target: {path}"
+            )
     return list(dict.fromkeys(errors)), list(dict.fromkeys(warnings + checks))
 
 
@@ -582,7 +589,7 @@ def source_audit(vault: Vault, source_id: str) -> Dict[str, Any]:
     }
 
 
-def create_backup(vault: Vault) -> Path:
+def create_backup(vault: Vault, adapter: Optional[PlatformAdapter] = None) -> Path:
     stamp = now_iso().replace(":", "-")
     backup = vault.state_dir / "backups" / stamp
     suffix = 1
@@ -590,13 +597,8 @@ def create_backup(vault: Vault) -> Path:
         backup = vault.state_dir / "backups" / f"{stamp}-{suffix}"
         suffix += 1
     backup.mkdir(parents=True, exist_ok=False)
-    home = Path.home()
-    targets = {
-        "agents-skills": home / ".agents" / "skills",
-        "claude-skills": home / ".claude" / "skills",
-        "claude-commands": home / ".claude" / "commands",
-        "codex-skills-user": home / ".codex" / "skills",
-    }
+    platform = adapter or current_platform()
+    targets = platform.backup_targets()
     manifest: Dict[str, Any] = {"schema_version": 1, "created_at": now_iso(), "targets": {}}
     for label, target in targets.items():
         manifest["targets"][label] = {"path": str(target), "existed": target.exists()}
@@ -612,28 +614,30 @@ def create_backup(vault: Vault) -> Path:
     return backup
 
 
-def _reset_user_skill_dirs() -> None:
-    home = Path.home()
-    for target in (home / ".agents" / "skills", home / ".claude" / "skills"):
+def _reset_user_skill_dirs(adapter: Optional[PlatformAdapter] = None) -> None:
+    platform = adapter or current_platform()
+    for target in platform.agent_skill_dirs().values():
         target.mkdir(parents=True, exist_ok=True)
         for child in list(target.iterdir()):
             _remove_path(child)
-    legacy = home / ".codex" / "skills"
+    legacy = platform.home / ".codex" / "skills"
     legacy.mkdir(parents=True, exist_ok=True)
     for child in list(legacy.iterdir()):
         if child.name != ".system":
             _remove_path(child)
-    commands = home / ".claude" / "commands"
+    commands = platform.home / ".claude" / "commands"
     if commands.exists():
         for child in list(commands.iterdir()):
             _remove_path(child)
 
 
-def install_plan(vault: Vault, profiles: Sequence[str]) -> Dict[str, Any]:
-    platforms = {
-        "codex": Path.home() / ".agents" / "skills",
-        "claude": Path.home() / ".claude" / "skills",
-    }
+def install_plan(
+    vault: Vault,
+    profiles: Sequence[str],
+    adapter: Optional[PlatformAdapter] = None,
+) -> Dict[str, Any]:
+    platform_adapter = adapter or current_platform()
+    platforms = platform_adapter.agent_skill_dirs()
     operations = []
     notes = []
     for platform, destination in platforms.items():
@@ -647,20 +651,27 @@ def install_plan(vault: Vault, profiles: Sequence[str]) -> Dict[str, Any]:
                     "name": entry["name"],
                     "path": str(destination / entry["name"]),
                     "target": str((vault.root / entry["path"]).resolve()),
+                    "deployment_type": platform_adapter.default_deployment_type,
                 }
             )
-    current = load_data(vault.state_dir / "install-state.json", {"links": []}).get("links", [])
+    current = state_deployments(load_data(vault.state_dir / "install-state.json", {"links": []}))
     current_by_path = {item.get("path"): item for item in current}
     desired_by_path = {item["path"]: item for item in operations}
     added = [item for path, item in desired_by_path.items() if path not in current_by_path]
     removed = [item for path, item in current_by_path.items() if path not in desired_by_path]
     changed = [
         item for path, item in desired_by_path.items()
-        if path in current_by_path and current_by_path[path].get("target") != item.get("target")
+        if path in current_by_path
+        and (
+            current_by_path[path].get("target") != item.get("target")
+            or current_by_path[path].get("deployment_type", "symlink") != item.get("deployment_type")
+        )
     ]
     kept = [
         item for path, item in desired_by_path.items()
-        if path in current_by_path and current_by_path[path].get("target") == item.get("target")
+        if path in current_by_path
+        and current_by_path[path].get("target") == item.get("target")
+        and current_by_path[path].get("deployment_type", "symlink") == item.get("deployment_type")
     ]
     return {
         "profiles": list(profiles),
@@ -677,8 +688,10 @@ def install(
     dry_run: bool = False,
     assume_yes: bool = False,
     backup_path: Optional[Path] = None,
+    adapter: Optional[PlatformAdapter] = None,
 ) -> Dict[str, Any]:
-    plan = install_plan(vault, profiles)
+    platform_adapter = adapter or current_platform()
+    plan = install_plan(vault, profiles, platform_adapter)
     if dry_run:
         return plan
     if reset and not confirm(
@@ -687,65 +700,47 @@ def install(
         raise VaultError("Install cancelled")
     backup = backup_path
     old_state = load_data(vault.state_dir / "install-state.json", {"links": []})
+    old_deployments = state_deployments(old_state)
     managed_by_path = {
         str(item.get("path")): item
-        for item in old_state.get("links", [])
+        for item in old_deployments
         if item.get("path") and item.get("target")
     }
-    created = []
+    deployed: List[Dict[str, Any]] = []
+    newly_created: List[Dict[str, Any]] = []
     try:
         if reset:
-            backup = backup or create_backup(vault)
-            _reset_user_skill_dirs()
+            backup = backup or create_backup(vault, platform_adapter)
+            _reset_user_skill_dirs(platform_adapter)
         desired_paths = {operation["path"] for operation in plan["operations"]}
-        for link in old_state.get("links", []):
-            path = Path(link["path"])
-            if str(path) not in desired_paths and path.is_symlink() and path.resolve() == Path(link["target"]).resolve():
-                path.unlink()
+        for current in old_deployments:
+            if str(current.get("path")) not in desired_paths:
+                remove_deployment(current)
 
         for operation in plan["operations"]:
             destination = Path(operation["path"])
-            target = Path(operation["target"])
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            if destination.is_symlink() and destination.resolve() == target.resolve():
-                created.append(operation)
-                continue
-            if destination.exists() or destination.is_symlink():
-                managed = managed_by_path.get(str(destination))
-                if (
-                    managed
-                    and destination.is_symlink()
-                    and destination.resolve() == Path(managed["target"]).resolve()
-                ):
-                    destination.unlink()
-                else:
-                    raise VaultError(
-                        f"Destination is not managed by this install plan: {destination}. Use --reset or resolve it manually."
-                    )
-            destination.symlink_to(target, target_is_directory=True)
-            created.append(operation)
+            managed = managed_by_path.get(str(destination))
+            existed = bool(managed and deployment_is_current(managed))
+            row = apply_deployment(operation, managed)
+            deployed.append(row)
+            if not existed:
+                newly_created.append(row)
     except Exception:
-        for operation in created:
-            path = Path(operation["path"])
-            if path.is_symlink() and path.resolve() == Path(operation["target"]).resolve():
-                path.unlink()
+        for row in reversed(newly_created):
+            try:
+                remove_deployment(row)
+            except Exception:
+                pass
         if backup:
             _restore_backup_path(vault, backup)
         raise
     state = {
-        "schema_version": 1,
+        "schema_version": 2,
         "installed_at": now_iso(),
         "profiles": list(profiles),
         "backup": str(backup) if backup else None,
-        "links": [
-            {
-                "path": item["path"],
-                "target": item["target"],
-                "skill_id": item["skill_id"],
-                "platform": item["platform"],
-            }
-            for item in created
-        ],
+        "deployments": deployed,
+        "links": legacy_links(deployed),
     }
     write_data(vault.state_dir / "install-state.json", state)
     vault.activate_profiles(profiles)
@@ -756,18 +751,16 @@ def install(
 def uninstall(vault: Vault, assume_yes: bool = False) -> int:
     state_path = vault.state_dir / "install-state.json"
     state = load_data(state_path, {"links": []})
-    links = state.get("links", [])
-    if not links:
+    deployments = state_deployments(state)
+    if not deployments:
         return 0
-    if not confirm(f"Remove {len(links)} Skills Vault-managed links?", assume_yes):
+    if not confirm(f"Remove {len(deployments)} Skills Vault-managed deployments?", assume_yes):
         raise VaultError("Uninstall cancelled")
     removed = 0
-    for link in links:
-        path = Path(link["path"])
-        if path.is_symlink() and path.resolve() == Path(link["target"]).resolve():
-            path.unlink()
+    for deployment in deployments:
+        if remove_deployment(deployment):
             removed += 1
-    write_data(state_path, {"schema_version": 1, "links": [], "uninstalled_at": now_iso()})
+    write_data(state_path, {"schema_version": 2, "deployments": [], "links": [], "uninstalled_at": now_iso()})
     return removed
 
 
@@ -779,7 +772,7 @@ def restore_backup(vault: Vault, backup_id: str, assume_yes: bool = False) -> Pa
     if not confirm(f"Replace current user-level skill directories with backup {backup_id}?", assume_yes):
         raise VaultError("Restore cancelled")
     _restore_backup_path(vault, backup)
-    write_data(vault.state_dir / "install-state.json", {"schema_version": 1, "links": [], "restored_at": now_iso(), "backup": backup_id})
+    write_data(vault.state_dir / "install-state.json", {"schema_version": 2, "deployments": [], "links": [], "restored_at": now_iso(), "backup": backup_id})
     return backup
 
 
