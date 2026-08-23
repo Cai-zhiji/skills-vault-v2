@@ -291,13 +291,15 @@ class Vault:
 
     def source_skill_root(self, source: Dict[str, Any]) -> Path:
         root = self.source_path(source)
-        relative = source.get("skill_root") if self.source_kind(source) == "skills-cli" else None
+        relative = source.get("skill_root")
         return (root / relative).resolve() if relative else root
 
     def source_revision(self, source: Dict[str, Any]) -> Optional[str]:
         root = self.source_path(source)
         if self.source_kind(source) == "git":
             return git_commit(root) if (root / ".git").exists() else None
+        if self.source_kind(source) == "local-copy":
+            return tree_fingerprint(root) if root.is_dir() else None
         lock_path = root / "skills-lock.json"
         if not lock_path.is_file():
             return None
@@ -311,7 +313,12 @@ class Vault:
             repo = self.source_path(source)
             kind = self.source_kind(source)
             skill_root = self.source_skill_root(source)
-            exists = (repo / ".git").exists() if kind == "git" else skill_root.is_dir() and (repo / "skills-lock.json").is_file()
+            if kind == "git":
+                exists = (repo / ".git").exists()
+            elif kind == "skills-cli":
+                exists = skill_root.is_dir() and (repo / "skills-lock.json").is_file()
+            else:
+                exists = skill_root.is_dir()
             revision = self.source_revision(source) if exists else None
             lock_row = lock.get("sources", {}).get(source_id, {})
             row = {
@@ -327,7 +334,7 @@ class Vault:
                 "exists": exists,
                 "commit": revision,
                 "locked": lock_row.get("commit") if kind == "git" else None,
-                "observed_revision": lock_row.get("revision") if kind == "skills-cli" else None,
+                "observed_revision": lock_row.get("revision") if kind != "git" else None,
                 "dirty": not git_clean(repo) if exists and kind == "git" else False if exists else None,
                 "enabled": policies.get(source_id, {}).get("enabled", True),
                 "policy_updated_at": policies.get(source_id, {}).get("updated_at"),
@@ -341,9 +348,10 @@ class Vault:
                 row["head_modified_at"] = git(repo, "show", "-s", "--format=%cI", "HEAD", check=False) or None
             elif exists:
                 row["remote_commit"] = None
-                row["remote_url"] = source["url"]
+                row["remote_url"] = source.get("url") if kind == "skills-cli" else None
                 row["dirty_files"] = []
-                row["head_modified_at"] = dt.datetime.fromtimestamp((repo / "skills-lock.json").stat().st_mtime).astimezone().replace(microsecond=0).isoformat()
+                observed_file = repo / "skills-lock.json" if kind == "skills-cli" else skill_root
+                row["head_modified_at"] = dt.datetime.fromtimestamp(observed_file.stat().st_mtime).astimezone().replace(microsecond=0).isoformat()
             else:
                 row["dirty_files"] = []
                 row["head_modified_at"] = None
@@ -365,6 +373,8 @@ class Vault:
             raise VaultError(f"Source {source_id} is not cloned at {repo}")
         if kind == "skills-cli" and (not skill_root.is_dir() or not (repo / "skills-lock.json").is_file()):
             raise VaultError(f"Source {source_id} is not installed at {repo}")
+        if kind == "local-copy" and not skill_root.is_dir():
+            raise VaultError(f"Source {source_id} is missing at {skill_root}")
         commit = self.source_revision(source)
         entries: List[Dict[str, Any]] = []
         for skill_md in sorted(skill_root.rglob("SKILL.md")):
@@ -726,9 +736,16 @@ class Vault:
                     "branch": source.get("branch", "main"),
                     "previous_commit": previous.get("sources", {}).get(source_id, {}).get("commit"),
                 }
-            else:
+            elif self.source_kind(source) == "skills-cli":
                 result["sources"][source_id] = {
                     "kind": "skills-cli",
+                    "revision": self.source_revision(source),
+                    "previous_revision": previous.get("sources", {}).get(source_id, {}).get("revision"),
+                    "update_policy": "self-managed",
+                }
+            else:
+                result["sources"][source_id] = {
+                    "kind": "local-copy",
                     "revision": self.source_revision(source),
                     "previous_revision": previous.get("sources", {}).get(source_id, {}).get("revision"),
                     "update_policy": "self-managed",

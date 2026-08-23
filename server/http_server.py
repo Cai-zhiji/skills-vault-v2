@@ -21,7 +21,8 @@ sys.path.insert(0, str(SERVER_ROOT))
 
 from skills_vault.core import Vault, VaultError, load_data  # noqa: E402
 from skills_vault.services import (ServiceError, activate_profiles, compare_skills, copy_profile,
-                                   create_original, delete_skills_apply, delete_skills_preview,
+                                   create_original, create_original_apply, create_original_preview,
+                                   delete_skills_apply, delete_skills_preview,
                                    derive_skill, git_source_apply, git_source_preview,
                                    install_apply, install_preview, list_backups,
                                    managed_selection_payload,
@@ -33,7 +34,11 @@ from skills_vault.services import (ServiceError, activate_profiles, compare_skil
                                    source_review,
                                    save_skill_guide, skill_guide_template,
                                    skills_cli_source_apply,
-                                   skills_cli_source_preview, update_apply, update_preview)  # noqa: E402
+                                   skills_cli_source_preview, update_apply, update_preview,
+                                   inspect_vault_candidate, vault_create_apply,
+                                   vault_create_preview, vault_import_apply,
+                                   vault_import_preview, web_v2_migration_apply,
+                                   web_v2_migration_preview)  # noqa: E402
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -181,6 +186,41 @@ class Handler(BaseHTTPRequestHandler):
             if self.path == "/api/sources/policy/preview":
                 self.send_json(source_policy_preview(self.vault, body.get("source_id", ""), bool(body.get("enabled"))))
                 return
+            if self.path == "/api/vault/candidates/inspect":
+                self.send_json(inspect_vault_candidate(str(body.get("path", ""))))
+                return
+            if self.path == "/api/vault/create/preview":
+                self.send_json(vault_create_preview(self.vault, str(body.get("destination", ""))))
+                return
+            if self.path == "/api/vault/create/apply":
+                self.send_json(vault_create_apply(self.vault, str(body.get("preview_token", ""))), HTTPStatus.CREATED)
+                return
+            if self.path == "/api/vault/import/preview":
+                self.send_json(
+                    vault_import_preview(
+                        self.vault,
+                        str(body.get("source_path", "")),
+                        str(body.get("mode", "")),
+                        body.get("source_id"),
+                        body.get("skill_names") or [],
+                    )
+                )
+                return
+            if self.path == "/api/vault/import/apply":
+                self.send_json(vault_import_apply(self.vault, str(body.get("preview_token", ""))), HTTPStatus.CREATED)
+                return
+            if self.path == "/api/vault/migration/preview":
+                self.send_json(
+                    web_v2_migration_preview(
+                        self.vault,
+                        str(body.get("source_path", "")),
+                        str(body.get("destination", "")),
+                    )
+                )
+                return
+            if self.path == "/api/vault/migration/apply":
+                self.send_json(web_v2_migration_apply(self.vault, str(body.get("preview_token", ""))), HTTPStatus.CREATED)
+                return
             if self.path == "/api/sources/policy/apply":
                 self.send_json(source_policy_apply(self.vault, body.get("preview_token", "")))
                 return
@@ -266,6 +306,12 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if self.path == "/api/skills/original":
                 self.send_json(create_original(self.vault, body.get("name", ""), body.get("description", "")), HTTPStatus.CREATED)
+                return
+            if self.path == "/api/skills/original/preview":
+                self.send_json(create_original_preview(self.vault, body.get("name", ""), body.get("description", "")))
+                return
+            if self.path == "/api/skills/original/apply":
+                self.send_json(create_original_apply(self.vault, body.get("preview_token", "")), HTTPStatus.CREATED)
                 return
             if self.path == "/api/derive":
                 self.send_json(

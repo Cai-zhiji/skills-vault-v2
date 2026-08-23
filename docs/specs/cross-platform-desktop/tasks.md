@@ -16,18 +16,18 @@
 
 ## 里程碑 2：Vault 生命周期与迁移
 
-- [ ] 2.1 实现 Vault schema 与初始化服务
+- [x] 2.1 实现 Vault schema 与初始化服务
   - 增加最小 Vault 模板、schema 版本和新建 Preview/Apply。
   - Git 缺失时仍能创建；Git 初始化作为独立可选动作。
   - _需求：R3、R5、R9_
 
-- [ ] 2.2 实现候选目录识别与普通仓库导入
+- [x] 2.2 实现候选目录识别与普通仓库导入
   - 只读识别完整 Vault、Git Skills 仓库、普通 Skills 文件夹和无效目录。
   - 支持“作为来源”和“作为我的 Skills”两种 Preview/Apply。
   - 覆盖冲突、嵌套 Skill、非 ASCII 路径和失败回滚。
   - _需求：R3、R9_
 
-- [ ] 2.3 实现 Web v2 Vault 迁移
+- [x] 2.3 实现 Web v2 Vault 迁移
   - 复制事实数据和来源历史，过滤运行状态，历史记录标记 legacy。
   - 重建 Catalog、核对 Skill ID/指纹，并保持旧 Vault 不变。
   - 平台部署重指向沿用独立安装 Preview/Apply。

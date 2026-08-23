@@ -26,6 +26,15 @@ from .core import (
     write_data,
 )
 from .deployment import legacy_links, remove_deployment, state_deployments
+from .migrations import (
+    apply_import,
+    apply_web_v2_migration,
+    create_vault,
+    import_plan,
+    inspect_candidate,
+    vault_create_plan,
+    web_v2_migration_plan,
+)
 from .ops import apply_updates, create_backup, install, install_plan, restore_backup, update_plan
 from .platform_adapter import current_platform
 from .skills_cli import discover as discover_skills_cli_source
@@ -143,6 +152,94 @@ def skill_guide_template(skill: Dict[str, Any]) -> str:
             "",
         ]
     )
+
+
+def inspect_vault_candidate(path: str) -> Dict[str, Any]:
+    return inspect_candidate(path)
+
+
+def vault_create_preview(vault: Vault, destination: str) -> Dict[str, Any]:
+    plan = vault_create_plan(destination)
+    tx = transaction_id("vault_create")
+    plan["transaction_id"] = tx
+    plan["preview_token"] = _issue_token(vault, "vault.create", {"plan": plan})
+    return plan
+
+
+def vault_create_apply(vault: Vault, token: str) -> Dict[str, Any]:
+    payload = _consume_token(vault, token, "vault.create")
+    plan = payload.get("plan") or {}
+    tx = plan.get("transaction_id") or transaction_id("vault_create")
+    try:
+        created = create_vault(str(plan.get("destination") or ""))
+        result = {
+            "transaction_id": tx,
+            "status": "complete",
+            "destination": str(created.root),
+            "schema_version": load_data(created.root / "vault.json").get("schema_version"),
+        }
+        _record_transaction(created, tx, {"operation": "vault.create", **result})
+        _record_transaction(vault, tx, {"operation": "vault.create", **result})
+        return result
+    except Exception as exc:
+        _record_transaction(
+            vault,
+            tx,
+            {"operation": "vault.create", "status": "failed", "destination": plan.get("destination"), "error": str(exc)},
+        )
+        raise
+
+
+def vault_import_preview(
+    vault: Vault,
+    source_path: str,
+    mode: str,
+    source_id: Optional[str] = None,
+    skill_names: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    plan = import_plan(vault, source_path, mode, source_id, skill_names)
+    tx = transaction_id("vault_import")
+    plan["transaction_id"] = tx
+    plan["preview_token"] = _issue_token(vault, "vault.import", {"plan": plan})
+    return plan
+
+
+def vault_import_apply(vault: Vault, token: str) -> Dict[str, Any]:
+    payload = _consume_token(vault, token, "vault.import")
+    plan = payload.get("plan") or {}
+    tx = plan.get("transaction_id") or transaction_id("vault_import")
+    try:
+        result = apply_import(vault, plan)
+        result.update({"transaction_id": tx, "status": "complete"})
+        _record_transaction(vault, tx, {"operation": "vault.import", **result})
+        return result
+    except Exception as exc:
+        _record_transaction(vault, tx, {"operation": "vault.import", "status": "failed", "error": str(exc)})
+        raise
+
+
+def web_v2_migration_preview(vault: Vault, source_path: str, destination: str) -> Dict[str, Any]:
+    plan = web_v2_migration_plan(source_path, destination)
+    tx = transaction_id("vault_migrate")
+    plan["transaction_id"] = tx
+    plan["preview_token"] = _issue_token(vault, "vault.migrate", {"plan": plan})
+    return plan
+
+
+def web_v2_migration_apply(vault: Vault, token: str) -> Dict[str, Any]:
+    payload = _consume_token(vault, token, "vault.migrate")
+    plan = payload.get("plan") or {}
+    tx = plan.get("transaction_id") or transaction_id("vault_migrate")
+    try:
+        result = apply_web_v2_migration(plan)
+        result.update({"transaction_id": tx, "status": "complete"})
+        migrated = Vault(Path(result["destination"]))
+        _record_transaction(migrated, tx, {"operation": "vault.migrate", **result})
+        _record_transaction(vault, tx, {"operation": "vault.migrate", **result})
+        return result
+    except Exception as exc:
+        _record_transaction(vault, tx, {"operation": "vault.migrate", "status": "failed", "error": str(exc)})
+        raise
 
 
 def save_skill_guide(vault: Vault, skill_id: str, markdown: str) -> Dict[str, Any]:
@@ -1524,7 +1621,44 @@ def save_annotation(vault: Vault, skill_id: str, values: Dict[str, Any]) -> Dict
     return {"transaction_id": tx, "skill_id": skill_id, "status": "saved"}
 
 
-def create_original(vault: Vault, name: str, description: str = "") -> Dict[str, Any]:
+def create_original_preview(vault: Vault, name: str, description: str = "") -> Dict[str, Any]:
+    normalized = str(name).strip()
+    destination = vault.root / "my-skills" / normalized
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,63}", normalized):
+        raise ServiceError("invalid_name", "Skill name must use lowercase letters, digits, and hyphens")
+    if destination.exists():
+        raise ServiceError("already_exists", f"Skill already exists: {normalized}")
+    tx = transaction_id("skill")
+    plan = {
+        "transaction_id": tx,
+        "skill_id": f"my/{normalized}",
+        "name": normalized,
+        "description": str(description).strip() or "Personal skill; review before enabling.",
+        "destination": str(destination),
+        "files": ["SKILL.md"],
+        "template": "minimal",
+    }
+    plan["preview_token"] = _issue_token(vault, "skill.original.create", {"plan": plan})
+    return plan
+
+
+def create_original_apply(vault: Vault, token: str) -> Dict[str, Any]:
+    payload = _consume_token(vault, token, "skill.original.create")
+    plan = payload.get("plan") or {}
+    return create_original(
+        vault,
+        str(plan.get("name") or ""),
+        str(plan.get("description") or ""),
+        transaction_id_override=str(plan.get("transaction_id") or transaction_id("skill")),
+    )
+
+
+def create_original(
+    vault: Vault,
+    name: str,
+    description: str = "",
+    transaction_id_override: Optional[str] = None,
+) -> Dict[str, Any]:
     destination = vault.root / "my-skills" / name
     if destination.exists():
         raise ServiceError("already_exists", f"Skill already exists: {name}")
@@ -1534,7 +1668,7 @@ def create_original(vault: Vault, name: str, description: str = "") -> Dict[str,
     content = f"---\nname: {name}\ndescription: {description or 'Personal skill; review before enabling.'}\n---\n\n# {name}\n\nDescribe the workflow here.\n"
     (destination / "SKILL.md").write_text(content, encoding="utf-8")
     vault.scan()
-    tx = transaction_id("skill")
+    tx = transaction_id_override or transaction_id("skill")
     _record_transaction(vault, tx, {"operation": "skill.create", "status": "complete", "skill_id": f"my/{name}"})
     return {"transaction_id": tx, "skill_id": f"my/{name}", "path": str(destination)}
 

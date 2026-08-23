@@ -103,6 +103,24 @@ def update_plan(vault: Vault, source_filter: Optional[Sequence[str]] = None) -> 
         if source_id not in selected:
             continue
         repo = vault.source_path(source)
+        if vault.source_kind(source) == "local-copy":
+            revision = vault.source_revision(source)
+            rows.append(
+                {
+                    "source_id": source_id,
+                    "source_kind": "local-copy",
+                    "status": "local-copy" if revision else "missing",
+                    "head": revision,
+                    "target": revision,
+                    "branch": None,
+                    "dirty": False,
+                    "commits": [],
+                    "changes": [],
+                    "risk_signals": [],
+                    "notes": ["本地复制来源不会自动从原目录更新。"],
+                }
+            )
+            continue
         if vault.source_kind(source) == "skills-cli":
             revision = vault.source_revision(source)
             if not revision or not vault.source_skill_root(source).is_dir():
@@ -434,6 +452,15 @@ def lint_vault(vault: Vault) -> Tuple[List[str], List[str]]:
     lock = load_data(vault.lock_path)
     for source_id, source in registry.get("sources", {}).items():
         repo = vault.source_path(source)
+        if vault.source_kind(source) == "local-copy":
+            if not vault.source_skill_root(source).is_dir():
+                errors.append(f"Source {source_id} is missing at {vault.source_skill_root(source)}")
+                continue
+            observed = vault.source_revision(source)
+            locked = lock.get("sources", {}).get(source_id, {}).get("revision")
+            if observed != locked:
+                errors.append(f"Source {source_id} content does not match lock revision")
+            continue
         if vault.source_kind(source) == "skills-cli":
             if not vault.source_skill_root(source).is_dir():
                 errors.append(f"Source {source_id} is missing at {vault.source_skill_root(source)}")
@@ -539,7 +566,7 @@ def source_audit(vault: Vault, source_id: str) -> Dict[str, Any]:
     scan_root = vault.source_skill_root(source)
     if kind == "git" and not (repo / ".git").exists():
         raise VaultError(f"Source is missing: {repo}")
-    if kind == "skills-cli" and not scan_root.is_dir():
+    if kind in ("skills-cli", "local-copy") and not scan_root.is_dir():
         raise VaultError(f"Source is missing: {repo}")
     large_files = []
     escaping_links = []
@@ -572,7 +599,7 @@ def source_audit(vault: Vault, source_id: str) -> Dict[str, Any]:
         "declared_license": source.get("license", "unknown"),
         "license_files": sorted(licenses),
         "has_submodules": (repo / ".gitmodules").exists() if kind == "git" else False,
-        "self_managed": kind == "skills-cli",
+        "self_managed": kind in ("skills-cli", "local-copy"),
         "large_files": large_files,
         "escaping_symlinks": escaping_links,
         "script_files": script_count,
