@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
-use std::io::{BufRead, BufReader, Read, Write};
+#[cfg(debug_assertions)]
+use std::io::{BufRead, BufReader};
+use std::io::{Read, Write};
 use std::net::TcpStream;
 #[cfg(debug_assertions)]
 use std::process::{Child as DebugChild, Command as DebugCommand, Stdio};

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto"
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs"
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs"
 import os from "node:os"
 import path from "node:path"
 
@@ -51,6 +51,7 @@ const bundleRoot = path.join(project, "src-tauri", "target", "release", "bundle"
 if (!existsSync(bundleRoot)) throw new Error("Tauri 未生成 bundle 目录")
 const platformName = process.platform === "darwin" ? "macos" : process.platform === "win32" ? "windows" : "linux"
 const outputRoot = path.join(project, "dist", "packages", manifest.version, `${platformName}-${process.arch}`)
+rmSync(outputRoot, { recursive: true, force: true })
 mkdirSync(outputRoot, { recursive: true })
 
 function filesUnder(root) {

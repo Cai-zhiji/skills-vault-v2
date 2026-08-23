@@ -30,6 +30,13 @@
     "active": true,
     "targets": "all",
     "externalBin": ["binaries/skills-vault-sidecar"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
     "category": "DeveloperTool",
     "shortDescription": "Local-first Agent Skills workspace"
   }
