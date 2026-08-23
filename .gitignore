@@ -10,6 +10,7 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .venv/
+.venv-build/
 
 # Environment
 .env
@@ -35,3 +36,8 @@ catalog/
 npm-debug.log*
 pnpm-debug.log*
 yarn-error.log*
+
+# Tauri generated artifacts
+src-tauri/target/
+src-tauri/gen/
+src-tauri/binaries/skills-vault-sidecar-*

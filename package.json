@@ -1,0 +1,17 @@
+{
+  "name": "skills-vault-v2",
+  "private": true,
+  "version": "2.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node tools/dev.mjs desktop",
+    "dev:web": "node tools/dev.mjs web",
+    "test:all": "node tools/test-all.mjs",
+    "package": "node tools/package.mjs",
+    "package:diagnose": "node tools/package.mjs --diagnose",
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.11.4"
+  }
+}

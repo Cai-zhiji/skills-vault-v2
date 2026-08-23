@@ -4,9 +4,9 @@
   "version": "2.1.0",
   "identifier": "app.skillsvault.desktop",
   "build": {
-    "beforeDevCommand": "npm --prefix ../app run dev -- --host 127.0.0.1 --port 1420",
+    "beforeDevCommand": "npm --prefix app run dev -- --host 127.0.0.1 --port 1420",
     "devUrl": "http://127.0.0.1:1420",
-    "beforeBuildCommand": "npm --prefix ../app run build",
+    "beforeBuildCommand": "npm --prefix app run build",
     "frontendDist": "../app/dist"
   },
   "app": {

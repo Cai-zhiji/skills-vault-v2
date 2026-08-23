@@ -136,7 +136,7 @@ class Handler(BaseHTTPRequestHandler):
                 active_root = DESKTOP_STATE.active_vault_root()
                 self.send_json({
                     "status": "ok",
-                    "version": "2.0.0",
+                    "version": "2.1.0",
                     "vault_root": str(active_root) if active_root else None,
                     "frontend_built": (WEB_ROOT / "index.html").is_file(),
                 })
@@ -476,7 +476,7 @@ class Handler(BaseHTTPRequestHandler):
         state = load_data(vault.state_dir / "install-state.json", {"links": []})
         return {
             "root": str(vault.root),
-            "app_version": "2.0.0",
+            "app_version": "2.1.0",
             "generated_at": catalog.get("generated_at"),
             "active_profiles": vault.active_profiles(),
             "catalog": catalog.get("counts", {}),

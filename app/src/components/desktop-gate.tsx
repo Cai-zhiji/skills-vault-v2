@@ -1,5 +1,6 @@
 import { type ReactNode, useState } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { open } from "@tauri-apps/plugin-dialog"
 import {
   ArrowLeft,
   ArrowRight,
@@ -14,7 +15,7 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { ApiError, api } from "@/lib/api"
-import { runtimeStartupError } from "@/lib/runtime"
+import { isTauriRuntime, runtimeStartupError } from "@/lib/runtime"
 import type {
   DesktopOnboardingPreview,
   DesktopOnboardingResult,
@@ -121,6 +122,24 @@ export function DesktopGate({ children }: { children: ReactNode }) {
     setDestination(statusQuery.data.default_vault)
   }
 
+  const chooseFolder = async (target: "source" | "destination") => {
+    try {
+      const current = target === "source" ? sourcePath : destination
+      const selectedPath = await open({
+        directory: true,
+        multiple: false,
+        defaultPath: current || undefined,
+        title: target === "source" ? "选择要读取的文件夹" : "选择新 Vault 保存位置",
+      })
+      if (selectedPath) {
+        if (target === "source") setSourcePath(selectedPath)
+        else setDestination(selectedPath)
+      }
+    } catch (error) {
+      toast.error(errorMessage(error))
+    }
+  }
+
   const requestPreview = async () => {
     if (!action) return
     setBusy(true)
@@ -205,13 +224,19 @@ export function DesktopGate({ children }: { children: ReactNode }) {
                   {needsSource ? (
                     <label className="grid gap-2 text-sm font-medium">
                       {action === "open" ? "Vault 文件夹" : action === "migrate" ? "旧版 Web Vault 文件夹" : "原 Skills 仓库或文件夹"}
-                      <Input value={sourcePath} onChange={(event) => setSourcePath(event.target.value)} placeholder="输入完整文件夹路径" autoFocus />
+                      <span className="flex gap-2">
+                        <Input value={sourcePath} onChange={(event) => setSourcePath(event.target.value)} placeholder="输入完整文件夹路径" autoFocus />
+                        {isTauriRuntime() ? <Button type="button" variant="outline" onClick={() => chooseFolder("source")}>选择…</Button> : null}
+                      </span>
                     </label>
                   ) : null}
                   {needsDestination ? (
                     <label className="grid gap-2 text-sm font-medium">
                       新 Vault 保存位置
-                      <Input value={destination} onChange={(event) => setDestination(event.target.value)} placeholder="输入完整文件夹路径" autoFocus={!needsSource} />
+                      <span className="flex gap-2">
+                        <Input value={destination} onChange={(event) => setDestination(event.target.value)} placeholder="输入完整文件夹路径" autoFocus={!needsSource} />
+                        {isTauriRuntime() ? <Button type="button" variant="outline" onClick={() => chooseFolder("destination")}>选择…</Button> : null}
+                      </span>
                     </label>
                   ) : null}
                   <p className="text-xs leading-5 text-muted-foreground">下一步只生成预览，不会立即写入文件。</p>
