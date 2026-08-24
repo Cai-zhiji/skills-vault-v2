@@ -13,6 +13,12 @@ const SourcesPage = lazy(() =>
 const RecordsPage = lazy(() =>
   import("@/pages/records-page").then((module) => ({ default: module.RecordsPage })),
 )
+const SettingsPage = lazy(() =>
+  import("@/pages/settings-page").then((module) => ({ default: module.SettingsPage })),
+)
+const HelpPage = lazy(() =>
+  import("@/pages/help-page").then((module) => ({ default: module.HelpPage })),
+)
 
 function PageFallback() {
   return (
@@ -33,6 +39,8 @@ export default function App() {
             <Route path="skills" element={<SkillsPage />} />
             <Route path="sources" element={<SourcesPage />} />
             <Route path="records" element={<RecordsPage />} />
+            <Route path="settings" element={<SettingsPage />} />
+            <Route path="help" element={<HelpPage />} />
             <Route path="*" element={<Navigate to="/skills" replace />} />
           </Route>
         </Routes>

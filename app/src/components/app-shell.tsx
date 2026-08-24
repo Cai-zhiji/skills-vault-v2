@@ -6,13 +6,16 @@ import {
   Command as CommandIcon,
   DatabaseZap,
   History,
+  HelpCircle,
   Library,
+  Settings,
   Search,
 } from "lucide-react"
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom"
 
 import { OperationRail } from "@/components/operation-rail"
 import { SyncRail } from "@/components/sync-rail"
+import { VaultMenu } from "@/components/vault-menu"
 import { Button } from "@/components/ui/button"
 import {
   Command,
@@ -27,6 +30,7 @@ import {
 import { Separator } from "@/components/ui/separator"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { api } from "@/lib/api"
+import { useOperation } from "@/lib/operation-context"
 import { cn } from "@/lib/utils"
 import type { SelectionPayload, StatusPayload } from "@/types/api"
 
@@ -52,12 +56,23 @@ const pageMeta: Record<string, { eyebrow: string; title: string; description: st
     title: "记录",
     description: "追踪写操作、更新报告与可恢复备份。",
   },
+  "/settings": {
+    eyebrow: "DESKTOP / CONFIGURATION",
+    title: "设置",
+    description: "管理 Vault、平台和本机运行边界。",
+  },
+  "/help": {
+    eyebrow: "FIELD MANUAL / SUPPORT",
+    title: "帮助",
+    description: "理解状态、写入边界和恢复路径。",
+  },
 }
 
 export function AppShell() {
   const location = useLocation()
   const navigate = useNavigate()
   const [commandOpen, setCommandOpen] = useState(false)
+  const { operation } = useOperation()
   const page = pageMeta[location.pathname] || pageMeta["/skills"]
   const statusQuery = useQuery({
     queryKey: ["status"],
@@ -79,6 +94,16 @@ export function AppShell() {
     window.addEventListener("keydown", handleKeyDown)
     return () => window.removeEventListener("keydown", handleKeyDown)
   }, [])
+
+  useEffect(() => {
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (operation.state !== "running") return
+      event.preventDefault()
+      event.returnValue = ""
+    }
+    window.addEventListener("beforeunload", handleBeforeUnload)
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload)
+  }, [operation.state])
 
   const workspaceName = useMemo(() => {
     const root = statusQuery.data?.root
@@ -103,6 +128,10 @@ export function AppShell() {
               {workspaceName} / local
             </p>
           </div>
+        </div>
+
+        <div className="sidebar-vault-menu">
+          <VaultMenu />
         </div>
 
         <nav className="primary-nav" aria-label="主要导航">
@@ -153,6 +182,7 @@ export function AppShell() {
 
       <div className="main-shell">
         <header className="topbar">
+          <div className="mobile-vault-menu"><VaultMenu /></div>
           <div className="min-w-0">
             <p className="eyebrow">{page.eyebrow}</p>
             <div className="mt-1 flex items-baseline gap-3">
@@ -180,6 +210,10 @@ export function AppShell() {
             </TooltipTrigger>
             <TooltipContent>打开全局命令</TooltipContent>
           </Tooltip>
+          <div className="hidden items-center gap-1 md:flex">
+            <Tooltip><TooltipTrigger render={<Button variant="ghost" size="icon" aria-label="打开帮助" onClick={() => navigate("/help")} />}><HelpCircle /></TooltipTrigger><TooltipContent>使用帮助</TooltipContent></Tooltip>
+            <Tooltip><TooltipTrigger render={<Button variant="ghost" size="icon" aria-label="打开设置" onClick={() => navigate("/settings")} />}><Settings /></TooltipTrigger><TooltipContent>设置</TooltipContent></Tooltip>
+          </div>
         </header>
 
         <nav className="mobile-nav" aria-label="移动端导航">
@@ -259,6 +293,10 @@ export function AppShell() {
                 <BookOpenText />
                 查看事务和备份
               </CommandItem>
+            </CommandGroup>
+            <CommandGroup heading="应用">
+              <CommandItem onSelect={() => runCommand("/help")}><HelpCircle />使用帮助</CommandItem>
+              <CommandItem onSelect={() => runCommand("/settings")}><Settings />设置</CommandItem>
             </CommandGroup>
           </CommandList>
         </Command>

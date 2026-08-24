@@ -89,6 +89,13 @@ export interface DesktopOnboardingResult {
   imported_skills: string[]
 }
 
+export interface DesktopLeaveResult {
+  transaction_id: string
+  status: string
+  action: "leave"
+  previous_vault: string | null
+}
+
 export interface SkillCompatibility {
   level: string
   platforms: string[]

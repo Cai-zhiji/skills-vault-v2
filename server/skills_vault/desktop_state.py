@@ -85,6 +85,27 @@ class DesktopState:
             write_data(self.config_path, config)
         return target
 
+    def _clear_active(self) -> Optional[Path]:
+        config = self._config()
+        previous = self.active_vault_root()
+        config.update({"schema_version": 1, "active_vault": None, "updated_at": now_iso()})
+        write_data(self.config_path, config)
+        self._runtime_active = None
+        return previous
+
+    def leave(self) -> Dict[str, Any]:
+        """Clear the active Vault without touching any Vault files."""
+        previous = self._clear_active()
+        transaction_id = f"desktop_{secrets.token_hex(6)}"
+        result = {
+            "transaction_id": transaction_id,
+            "status": "complete",
+            "action": "leave",
+            "previous_vault": str(previous) if previous else None,
+        }
+        self._record(transaction_id, result)
+        return result
+
     def status(self) -> Dict[str, Any]:
         config = self._config()
         configured = config.get("active_vault")
@@ -133,7 +154,9 @@ class DesktopState:
         source_path: str = "",
         destination: str = "",
     ) -> Dict[str, Any]:
-        if action == "create":
+        if action == "leave":
+            plan = {"source": str(self.active_vault_root()) if self.active_vault_root() else None}
+        elif action == "create":
             plan = vault_create_plan(destination or self.default_vault_root)
         elif action == "open":
             candidate = inspect_candidate(source_path)
@@ -215,6 +238,16 @@ class DesktopState:
                 destination = Path(plan["destination"])
                 migrated = apply_web_v2_migration(plan)
                 active = Path(migrated["destination"])
+            elif action == "leave":
+                previous = self._clear_active()
+                result = {
+                    "transaction_id": transaction_id,
+                    "status": "complete",
+                    "action": action,
+                    "previous_vault": str(previous) if previous else None,
+                }
+                self._record(transaction_id, result)
+                return result
             else:
                 raise DesktopStateError("invalid_action", "Preview 操作类型无效")
             active = self.select(active)

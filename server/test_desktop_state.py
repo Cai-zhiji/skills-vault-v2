@@ -59,6 +59,22 @@ class DesktopStateTests(unittest.TestCase):
             self.assertTrue((destination / "my-skills" / "hello" / "SKILL.md").is_file())
             self.assertTrue((source / "SKILL.md").is_file())
 
+    def test_leave_clears_active_vault_without_touching_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            state = DesktopState(root / "config", root / "default")
+            current = create_vault(root / "current")
+            marker = current.root / "my-skills" / "keep.txt"
+            marker.write_text("user data", encoding="utf-8")
+            state.select(current.root)
+
+            result = state.leave()
+
+            self.assertEqual(result["action"], "leave")
+            self.assertEqual(state.status()["mode"], "onboarding")
+            self.assertTrue(marker.is_file())
+            self.assertEqual(marker.read_text(encoding="utf-8"), "user data")
+
 
 if __name__ == "__main__":
     unittest.main()
