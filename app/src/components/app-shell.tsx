@@ -14,6 +14,8 @@ import {
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom"
 
 import { OperationRail } from "@/components/operation-rail"
+import { FirstRunGuide } from "@/components/first-run-guide"
+import { QueryErrorState } from "@/components/query-state"
 import { SyncRail } from "@/components/sync-rail"
 import { VaultMenu } from "@/components/vault-menu"
 import { Button } from "@/components/ui/button"
@@ -31,6 +33,7 @@ import { Separator } from "@/components/ui/separator"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { api } from "@/lib/api"
 import { useOperation } from "@/lib/operation-context"
+import { applyPreferences, readPreferences, type AppPreferences } from "@/lib/preferences"
 import { cn } from "@/lib/utils"
 import type { SelectionPayload, StatusPayload } from "@/types/api"
 
@@ -66,6 +69,11 @@ const pageMeta: Record<string, { eyebrow: string; title: string; description: st
     title: "帮助",
     description: "理解状态、写入边界和恢复路径。",
   },
+  "/about": {
+    eyebrow: "IDENTITY / BUILD RECORD",
+    title: "关于",
+    description: "查看应用、运行时和当前工作区信息。",
+  },
 }
 
 export function AppShell() {
@@ -73,6 +81,7 @@ export function AppShell() {
   const navigate = useNavigate()
   const [commandOpen, setCommandOpen] = useState(false)
   const { operation } = useOperation()
+  const [preferences, setPreferences] = useState<AppPreferences>(() => readPreferences())
   const page = pageMeta[location.pathname] || pageMeta["/skills"]
   const statusQuery = useQuery({
     queryKey: ["status"],
@@ -104,6 +113,16 @@ export function AppShell() {
     window.addEventListener("beforeunload", handleBeforeUnload)
     return () => window.removeEventListener("beforeunload", handleBeforeUnload)
   }, [operation.state])
+
+  useEffect(() => {
+    applyPreferences(preferences)
+    const handlePreferences = (event: Event) => {
+      const custom = event as CustomEvent<AppPreferences>
+      setPreferences(custom.detail)
+    }
+    window.addEventListener("skills-vault-preferences", handlePreferences)
+    return () => window.removeEventListener("skills-vault-preferences", handlePreferences)
+  }, [preferences])
 
   const workspaceName = useMemo(() => {
     const root = statusQuery.data?.root
@@ -213,6 +232,7 @@ export function AppShell() {
           <div className="hidden items-center gap-1 md:flex">
             <Tooltip><TooltipTrigger render={<Button variant="ghost" size="icon" aria-label="打开帮助" onClick={() => navigate("/help")} />}><HelpCircle /></TooltipTrigger><TooltipContent>使用帮助</TooltipContent></Tooltip>
             <Tooltip><TooltipTrigger render={<Button variant="ghost" size="icon" aria-label="打开设置" onClick={() => navigate("/settings")} />}><Settings /></TooltipTrigger><TooltipContent>设置</TooltipContent></Tooltip>
+            <Tooltip><TooltipTrigger render={<Button variant="ghost" size="icon" aria-label="打开关于" onClick={() => navigate("/about")} />}><BookOpenText /></TooltipTrigger><TooltipContent>关于</TooltipContent></Tooltip>
           </div>
         </header>
 
@@ -235,6 +255,8 @@ export function AppShell() {
         </nav>
 
         <main className="content-shell">
+          {statusQuery.isError || selectionQuery.isError ? <QueryErrorState message="工作台状态暂时无法读取" onRetry={() => { void statusQuery.refetch(); void selectionQuery.refetch() }} /> : null}
+          {location.pathname === "/skills" && !statusQuery.isError && !selectionQuery.isError ? <FirstRunGuide /> : null}
           <div className="mobile-sync-rail">
             <SyncRail
               status={statusQuery.data}
@@ -297,6 +319,7 @@ export function AppShell() {
             <CommandGroup heading="应用">
               <CommandItem onSelect={() => runCommand("/help")}><HelpCircle />使用帮助</CommandItem>
               <CommandItem onSelect={() => runCommand("/settings")}><Settings />设置</CommandItem>
+              <CommandItem onSelect={() => runCommand("/about")}><BookOpenText />关于 Skills Vault</CommandItem>
             </CommandGroup>
           </CommandList>
         </Command>

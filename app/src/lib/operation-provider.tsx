@@ -18,15 +18,16 @@ import {
 export function OperationProvider({ children }: { children: ReactNode }) {
   const [operation, setOperation] = useState<Operation>(idleOperation)
   const activeKeys = useRef(new Set<string>())
+  const retryRef = useRef<(() => Promise<void>) | null>(null)
 
   const runOperation = useCallback(
-    async <T,>(
+    async function runOperation<T>(
       key: string,
       title: string,
       phase: string,
       task: () => Promise<T>,
       successMessage: (result: T) => string,
-    ): Promise<T | undefined> => {
+    ): Promise<T | undefined> {
       if (activeKeys.current.has(key)) return undefined
       activeKeys.current.add(key)
       setOperation({
@@ -40,6 +41,7 @@ export function OperationProvider({ children }: { children: ReactNode }) {
         const result = await task()
         const summary = successMessage(result)
         setOperation({ key, title, phase: "已完成", state: "success", summary })
+        retryRef.current = null
         toast.success(summary)
         return result
       } catch (error: unknown) {
@@ -53,7 +55,13 @@ export function OperationProvider({ children }: { children: ReactNode }) {
           phase: "未完成；请根据错误处理后重试",
           state: "failed",
           error: message,
+          errorCode: error instanceof ApiError ? error.code : "request_failed",
+          errorDetails: error instanceof ApiError ? error.details : undefined,
+          retryable: true,
         })
+        retryRef.current = async () => {
+          await runOperation(key, title, phase, task, successMessage)
+        }
         return undefined
       } finally {
         activeKeys.current.delete(key)
@@ -66,7 +74,13 @@ export function OperationProvider({ children }: { children: ReactNode }) {
     () => ({
       operation,
       runOperation,
-      dismissOperation: () => setOperation(idleOperation),
+      dismissOperation: () => {
+        retryRef.current = null
+        setOperation(idleOperation)
+      },
+      retryOperation: async () => {
+        if (retryRef.current) await retryRef.current()
+      },
     }),
     [operation, runOperation],
   )

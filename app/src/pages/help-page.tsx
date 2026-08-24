@@ -1,4 +1,7 @@
-import { BookOpenText, CircleAlert, GitBranch, LifeBuoy, RotateCcw, ShieldCheck } from "lucide-react"
+import { useMemo, useState } from "react"
+import { BookOpenText, CircleAlert, GitBranch, LifeBuoy, RotateCcw, Search, ShieldCheck } from "lucide-react"
+
+import { Input } from "@/components/ui/input"
 
 const topics = [
   { icon: BookOpenText, title: "开始使用", text: "首次启动时可以创建新 Vault、打开已有 Vault、导入 Skills 文件夹，或迁移旧版 Web Vault。" },
@@ -10,6 +13,15 @@ const topics = [
 ]
 
 export function HelpPage() {
+  const [search, setSearch] = useState("")
+  const needle = search.trim().toLowerCase()
+  const filteredTopics = useMemo(() => topics.filter((topic) => !needle || `${topic.title} ${topic.text}`.toLowerCase().includes(needle)), [needle])
+  const faq = [
+    ["如何切换仓库？", "点击左上角当前 Vault 菜单，选择“切换 Vault”或最近使用的 Vault。"],
+    ["如何退出当前仓库？", "在当前 Vault 菜单中选择“退出当前 Vault”。应用会回到选择页，不会删除仓库文件。"],
+    ["为什么保存后平台还没变化？", "保存的是选择状态；还需要在 Skills 页面确认安装 Preview，并应用到对应平台。"],
+  ]
+  const filteredFaq = faq.filter(([question, answer]) => !needle || `${question} ${answer}`.toLowerCase().includes(needle))
   return (
     <div className="page-stack help-page">
       <section className="help-hero">
@@ -25,27 +37,28 @@ export function HelpPage() {
         </div>
       </section>
 
+      <div className="help-search"><Search /><Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索帮助：例如切换 Vault、恢复、冲突…" aria-label="搜索帮助内容" />{search ? <span>{filteredTopics.length + filteredFaq.length} 条匹配</span> : <span>⌘K 可随时打开命令</span>}</div>
+
       <section className="help-section-heading">
         <div><p className="eyebrow">READ THE WORKBENCH</p><h3>从这里开始</h3></div>
         <p>每一块说明都对应一个你会在工作台中遇到的真实动作。</p>
       </section>
 
       <section className="help-grid">
-        {topics.map(({ icon: Icon, title, text }, index) => (
+        {filteredTopics.map(({ icon: Icon, title, text }, index) => (
           <article className="help-topic" key={title}>
             <div className="help-topic-index">0{index + 1}</div>
             <Icon className="help-topic-icon" />
             <div><h3>{title}</h3><p>{text}</p></div>
           </article>
         ))}
+        {!filteredTopics.length ? <div className="help-search-empty">没有匹配的主题，试试“同步”“恢复”或“Vault”。</div> : null}
       </section>
 
       <section className="help-faq">
         <div className="help-section-heading"><div><p className="eyebrow">QUICK ANSWERS</p><h3>常见操作</h3></div><p>不确定下一步时，先看这里。</p></div>
         <dl>
-          <div><dt>如何切换仓库？</dt><dd>点击左上角当前 Vault 菜单，选择“切换 Vault”或最近使用的 Vault。</dd></div>
-          <div><dt>如何退出当前仓库？</dt><dd>在当前 Vault 菜单中选择“退出当前 Vault”。应用会回到选择页，不会删除仓库文件。</dd></div>
-          <div><dt>为什么保存后平台还没变化？</dt><dd>保存的是选择状态；还需要在 Skills 页面确认安装 Preview，并应用到对应平台。</dd></div>
+          {filteredFaq.map(([question, answer]) => <div key={question}><dt>{question}</dt><dd>{answer}</dd></div>)}
         </dl>
       </section>
     </div>

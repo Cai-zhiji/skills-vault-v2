@@ -16,6 +16,8 @@ import {
 import { useSearchParams } from "react-router-dom"
 
 import { StatusPill } from "@/components/status-pill"
+import { QueryErrorState } from "@/components/query-state"
+import { QueryEmptyState } from "@/components/query-state"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -311,6 +313,7 @@ export function SourcesPage() {
 
   return (
     <div className="page-stack">
+      {sourcesQuery.isError || dependenciesQuery.isError ? <QueryErrorState message="来源或依赖状态暂时无法读取" onRetry={() => { void queryClient.invalidateQueries({ queryKey: ["sources"] }); void queryClient.invalidateQueries({ queryKey: ["dependencies"] }) }} /> : null}
       <section className="source-summary-band">
         <div>
           <p className="eyebrow">SOURCE CONTROL</p>
@@ -352,7 +355,7 @@ export function SourcesPage() {
       )}
 
       <section className="sources-grid">
-        {(sourcesQuery.data || []).map((source) => {
+        {sourcesQuery.data?.length ? sourcesQuery.data.map((source) => {
           const updateRow = updateBySource.get(source.id)
           const health = updateStatus(updateRow, source)
           return (
@@ -398,7 +401,7 @@ export function SourcesPage() {
               </div>
             </article>
           )
-        })}
+        }) : <QueryEmptyState title="还没有受管来源" description="可以添加 Git、Skills CLI 或本地来源，然后重新扫描 Catalog。" action={<Button onClick={() => setAddOpen(true)}><Plus />添加来源</Button>} />}
       </section>
 
       <Sheet

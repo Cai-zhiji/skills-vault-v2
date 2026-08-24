@@ -10,6 +10,9 @@ export interface Operation {
   summary?: string
   error?: string
   startedAt?: string
+  errorCode?: string
+  errorDetails?: Record<string, unknown>
+  retryable?: boolean
 }
 
 export interface OperationContextValue {
@@ -22,6 +25,7 @@ export interface OperationContextValue {
     successMessage: (result: T) => string,
   ) => Promise<T | undefined>
   dismissOperation: () => void
+  retryOperation: () => Promise<void>
 }
 
 export const idleOperation: Operation = {

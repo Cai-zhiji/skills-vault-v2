@@ -11,6 +11,8 @@ import {
 } from "lucide-react"
 
 import { StatusPill } from "@/components/status-pill"
+import { QueryErrorState } from "@/components/query-state"
+import { QueryEmptyState } from "@/components/query-state"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -110,6 +112,7 @@ export function RecordsPage() {
 
   return (
     <div className="page-stack">
+      {transactionsQuery.isError || backupsQuery.isError || updatesQuery.isError ? <QueryErrorState message="记录或备份暂时无法读取" onRetry={() => { void queryClient.invalidateQueries({ queryKey: ["transactions"] }); void queryClient.invalidateQueries({ queryKey: ["backups"] }); void queryClient.invalidateQueries({ queryKey: ["update-reports"] }) }} /> : null}
       <section className="record-ledger-head">
         <div className="record-ledger-title">
           <p className="eyebrow">LOCAL AUDIT LEDGER</p>
@@ -136,7 +139,7 @@ export function RecordsPage() {
             <div className="ledger-row ledger-header">
               <span>操作</span><span>状态</span><span>时间</span><span></span>
             </div>
-            {transactions.map((row) => (
+            {transactions.length ? transactions.map((row) => (
               <button
                 key={row.transaction_id}
                 type="button"
@@ -163,13 +166,13 @@ export function RecordsPage() {
                 <span className="font-data text-[10px]">{formatDate(row.created_at)}</span>
                 <span><ArrowRight className="size-4" /></span>
               </button>
-            ))}
+            )) : <QueryEmptyState title="还没有事务记录" description="完成一次扫描、同步、更新或恢复后，操作记录会显示在这里。" />}
           </section>
         </TabsContent>
 
         <TabsContent value="backups" className="mt-4">
           <section className="backup-grid">
-            {(backupsQuery.data || []).map((backup) => (
+            {backupsQuery.data?.length ? backupsQuery.data.map((backup) => (
               <article className="backup-card" key={backup.id}>
                 <div className="flex items-start justify-between gap-3">
                   <div className="backup-icon"><ArchiveRestore /></div>
@@ -181,13 +184,13 @@ export function RecordsPage() {
                   <RotateCcw /> 预览恢复
                 </Button>
               </article>
-            ))}
+            )) : <QueryEmptyState title="还没有可用备份" description="应用会在重要写入前创建可恢复备份。" />}
           </section>
         </TabsContent>
 
         <TabsContent value="updates" className="mt-4">
           <section className="update-report-list">
-            {(updatesQuery.data?.reports || []).map((report, index) => (
+            {updatesQuery.data?.reports?.length ? updatesQuery.data.reports.map((report, index) => (
               <article key={`${String(report.generated_at || "report")}-${index}`}>
                 <div className="grid size-8 place-items-center border bg-surface">
                   <CheckCircle2 className="size-4 text-[var(--safe)]" />
@@ -200,7 +203,7 @@ export function RecordsPage() {
                   {report.applied ? "已应用" : "仅检查"}
                 </StatusPill>
               </article>
-            ))}
+            )) : <QueryEmptyState title="还没有更新报告" description="检查来源更新后，报告会保留在这里。" />}
           </section>
         </TabsContent>
       </Tabs>

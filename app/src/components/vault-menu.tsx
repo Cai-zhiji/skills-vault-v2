@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   Check,
@@ -20,6 +20,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { api, ApiError } from "@/lib/api"
 import { isTauriRuntime } from "@/lib/runtime"
 import { useOperation } from "@/lib/operation-context"
+import { readPreferences, vaultMetaKey, type AppPreferences } from "@/lib/preferences"
 import type { DesktopLeaveResult, DesktopOnboardingPreview, DesktopOnboardingResult, DesktopStatusPayload } from "@/types/api"
 
 function vaultLabel(path: string | null | undefined) {
@@ -36,17 +37,25 @@ export function VaultMenu() {
   const [switchPreview, setSwitchPreview] = useState<DesktopOnboardingPreview | null>(null)
   const [leaveOpen, setLeaveOpen] = useState(false)
   const [leavePreview, setLeavePreview] = useState<DesktopOnboardingPreview | null>(null)
+  const [preferences, setPreferences] = useState<AppPreferences>(() => readPreferences())
   const statusQuery = useQuery({
     queryKey: ["desktop-status"],
     queryFn: () => api.get<DesktopStatusPayload>("/api/desktop/status"),
   })
   const status = statusQuery.data
   const busy = operation.state === "running"
-  const recentVaults = useMemo(() => (status?.recent_vaults || []).filter((path) => path !== status?.active_vault), [status?.active_vault, status?.recent_vaults])
+  const recentVaults = useMemo(() => (status?.recent_vaults || []).filter((path) => path !== status?.active_vault).sort((left, right) => Number(preferences.vaultMeta[vaultMetaKey(right)]?.favorite === true) - Number(preferences.vaultMeta[vaultMetaKey(left)]?.favorite === true)), [preferences.vaultMeta, status?.active_vault, status?.recent_vaults])
+  const activeMeta = preferences.vaultMeta[vaultMetaKey(status?.active_vault)] || {}
 
   const refreshWorkspace = async () => {
     await queryClient.invalidateQueries()
   }
+
+  useEffect(() => {
+    const handlePreferences = (event: Event) => setPreferences((event as CustomEvent<AppPreferences>).detail)
+    window.addEventListener("skills-vault-preferences", handlePreferences)
+    return () => window.removeEventListener("skills-vault-preferences", handlePreferences)
+  }, [])
 
   const previewSwitch = async () => {
     if (!switchPath.trim()) return
@@ -112,7 +121,7 @@ export function VaultMenu() {
       <DropdownMenu>
         <DropdownMenuTrigger render={<Button variant="ghost" className="vault-menu-trigger" disabled={busy} />}>
           <span className="vault-menu-mark"><Vault className="size-3.5" /></span>
-          <span className="min-w-0 text-left"><span className="vault-menu-title"><span className="vault-status-dot" />{vaultLabel(status?.active_vault)}</span><span className="vault-menu-path">{status?.active_vault || "选择一个本地工作区"}</span></span>
+          <span className="min-w-0 text-left"><span className="vault-menu-title"><span className="vault-status-dot" />{activeMeta.alias || vaultLabel(status?.active_vault)}</span><span className="vault-menu-path">{status?.active_vault || "选择一个本地工作区"}</span></span>
           <ChevronDown className="ml-auto size-3.5 shrink-0 opacity-50" />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-80">
@@ -120,7 +129,7 @@ export function VaultMenu() {
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={() => { setSwitchPath(""); setSwitchPreview(null); setSwitchOpen(true) }}><FolderOpen />切换 Vault</DropdownMenuItem>
           {recentVaults.length ? <div className="px-3 pb-1 pt-2 text-[10px] text-muted-foreground">最近使用</div> : null}
-          {recentVaults.map((path) => <DropdownMenuItem key={path} onClick={() => chooseRecent(path)}><Vault /><span className="min-w-0 truncate">{vaultLabel(path)}</span><Check className="ml-auto size-3 opacity-0" /></DropdownMenuItem>)}
+          {recentVaults.map((path) => <DropdownMenuItem key={path} onClick={() => chooseRecent(path)}><Vault /><span className="min-w-0 truncate">{preferences.vaultMeta[vaultMetaKey(path)]?.alias || vaultLabel(path)}</span>{preferences.vaultMeta[vaultMetaKey(path)]?.favorite ? <span className="ml-auto text-[var(--copper)]">★</span> : <Check className="ml-auto size-3 opacity-0" />}</DropdownMenuItem>)}
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={() => navigate("/settings?tab=vault")}><Settings2 />Vault 设置</DropdownMenuItem>
           <DropdownMenuItem onClick={() => navigate("/skills?action=scan")}><RefreshCw />重新扫描</DropdownMenuItem>

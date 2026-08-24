@@ -5,7 +5,7 @@ import { useOperation } from "@/lib/operation-context"
 import { cn } from "@/lib/utils"
 
 export function OperationRail() {
-  const { operation, dismissOperation } = useOperation()
+  const { operation, dismissOperation, retryOperation } = useOperation()
   const isIdle = operation.state === "idle"
   const isRunning = operation.state === "running"
   const isFailed = operation.state === "failed"
@@ -71,6 +71,16 @@ export function OperationRail() {
               <p className="text-xs font-medium text-[var(--fault)]">
                 {operation.error}
               </p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {operation.retryable && <Button variant="outline" size="xs" onClick={() => void retryOperation()}>重试</Button>}
+                {operation.errorCode && <span className="self-center font-data text-[9px] text-muted-foreground">{operation.errorCode}</span>}
+              </div>
+              {operation.errorDetails && Object.keys(operation.errorDetails).length > 0 && (
+                <details className="mt-2 text-[10px] text-muted-foreground">
+                  <summary className="cursor-pointer">查看错误详情</summary>
+                  <pre className="technical-json mt-2 max-h-32">{JSON.stringify(operation.errorDetails, null, 2)}</pre>
+                </details>
+              )}
               <p className="mt-1 text-[11px] leading-5 text-muted-foreground">
                 未确认的写入不会继续执行。处理原因后重新生成 Preview。
               </p>

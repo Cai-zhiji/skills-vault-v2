@@ -19,6 +19,9 @@ const SettingsPage = lazy(() =>
 const HelpPage = lazy(() =>
   import("@/pages/help-page").then((module) => ({ default: module.HelpPage })),
 )
+const AboutPage = lazy(() =>
+  import("@/pages/about-page").then((module) => ({ default: module.AboutPage })),
+)
 
 function PageFallback() {
   return (
@@ -41,6 +44,7 @@ export default function App() {
             <Route path="records" element={<RecordsPage />} />
             <Route path="settings" element={<SettingsPage />} />
             <Route path="help" element={<HelpPage />} />
+            <Route path="about" element={<AboutPage />} />
             <Route path="*" element={<Navigate to="/skills" replace />} />
           </Route>
         </Routes>

@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   ArrowRight,
-  Boxes,
   Check,
   FileDiff,
   FilePlus2,
@@ -16,6 +15,8 @@ import {
 import { useSearchParams } from "react-router-dom"
 
 import { SkillDetailSheet } from "@/components/skill-detail-sheet"
+import { QueryErrorState } from "@/components/query-state"
+import { QueryEmptyState } from "@/components/query-state"
 import { StatusPill } from "@/components/status-pill"
 import {
   AlertDialog,
@@ -392,6 +393,7 @@ export function SkillsPage() {
 
   return (
     <div className="page-stack">
+      {skillsQuery.isError || selectionQuery.isError || statusQuery.isError ? <QueryErrorState message="Skills 工作区暂时无法读取" onRetry={() => { void queryClient.invalidateQueries({ queryKey: ["skills"] }); void queryClient.invalidateQueries({ queryKey: ["selection"] }); void queryClient.invalidateQueries({ queryKey: ["status"] }) }} /> : null}
       {catalogState && !catalogState.fresh && (
         <section className="attention-strip">
           <div className="flex min-w-0 items-start gap-3">
@@ -613,14 +615,7 @@ export function SkillsPage() {
             })}
           </div>
         ) : (
-          <div className="empty-state">
-            <Boxes />
-            <h2>没有匹配的 Skills</h2>
-            <p>调整搜索或筛选；如果刚加入本地目录，请先扫描。</p>
-            <Button variant="outline" onClick={() => void scan()}>
-              <RefreshCw /> 扫描本地 Skills
-            </Button>
-          </div>
+          <QueryEmptyState title="没有匹配的 Skills" description="调整搜索或筛选；如果刚加入本地目录，请先扫描。" action={<Button variant="outline" onClick={() => void scan()}><RefreshCw />扫描本地 Skills</Button>} />
         )}
       </section>
 
