@@ -1,5 +1,9 @@
 # Skills Vault v2
 
+Copyright (c) 2026 Cai-zhiji
+
+本项目采用 [GNU Affero General Public License v3.0 or later](LICENSE)。你可以自由使用、研究、修改和再分发本项目；基于本项目提供网络服务时，也必须向用户提供对应的源代码。项目中的用户 Vault、原创 Skill、备份和说明文档属于用户数据，不会因应用卸载或升级而被删除。
+
 本地优先的 Agent Skills 桌面管理工作台。正式入口采用 Tauri v2，React 界面负责浏览与操作，Python sidecar 负责 Vault、Catalog、来源、平台部署、事务与恢复。Git 和外部 Skills CLI 都是可选增强能力，不影响应用启动和原创 Skill 管理。
 
 ## 用户如何开始
