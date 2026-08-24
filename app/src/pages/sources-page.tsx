@@ -280,7 +280,11 @@ export function SourcesPage() {
         api.post<ApplyResponse>(endpoint, {
           preview_token: addPreview.preview_token,
         }),
-      () => `来源 ${addPreview.source_id} 已添加`,
+      () => addPreview.action === "merge"
+        ? `已向 ${addPreview.source_id} 追加 Skill`
+        : addPreview.action === "unchanged"
+          ? `${addPreview.source_id} 已是最新`
+          : `来源 ${addPreview.source_id} 已添加`,
     )
     if (result) {
       setAddPreview(null)
@@ -487,7 +491,12 @@ export function SourcesPage() {
                   <ShieldCheck className="size-4" /> Preview 已就绪
                 </div>
                 <p className="mt-2 text-muted-foreground">
-                  自动名称：{addPreview.source_id}；{addPreview.dependency ? `使用 ${addPreview.dependency.name}（${addPreview.dependency.resolution_source}）` : "已通过检查"}
+                  {addPreview.action === "merge"
+                    ? `复用已有来源，新增 ${addPreview.skills_to_add?.length || 0} 个 Skill`
+                    : addPreview.action === "unchanged"
+                      ? "请求的 Skill 已全部存在，无需写入"
+                      : `自动名称：${addPreview.source_id}`}
+                  {addPreview.dependency ? `；使用 ${addPreview.dependency.name}（${addPreview.dependency.resolution_source}）` : ""}
                 </p>
               </div>
             )}
@@ -506,7 +515,9 @@ export function SourcesPage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setAddOpen(false)}>取消</Button>
             {addPreview ? (
-              <Button onClick={() => void applyAdd()}><Plus /> 添加来源</Button>
+              <Button onClick={() => void applyAdd()}>
+                <Plus /> {addPreview.action === "merge" ? "添加 Skill" : addPreview.action === "unchanged" ? "确认" : "添加来源"}
+              </Button>
             ) : (
               <Button onClick={() => void previewAdd()} disabled={!sourceInput.trim() || !sourceDependencyReady}>
                 <RefreshCw /> 检查来源

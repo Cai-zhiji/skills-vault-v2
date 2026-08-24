@@ -138,6 +138,30 @@ def install(
     return {"skills": names, "output": output[-12000:]}
 
 
+def add_to_existing(
+    source_url: str,
+    workdir: Path,
+    skills: Sequence[str],
+    full_depth: bool = False,
+) -> Dict[str, object]:
+    """Append selected skills to an existing Vault-owned skills-cli project."""
+    if not workdir.is_dir() or not (workdir / "skills-lock.json").is_file():
+        raise VaultError(f"skills-cli source is not an installed project: {workdir}")
+    selected = list(dict.fromkeys(str(skill).strip() for skill in skills if str(skill).strip()))
+    if not selected:
+        return {"before": installed_skills(workdir), "after": installed_skills(workdir), "output": "unchanged"}
+    before = installed_skills(workdir)
+    args = ["add", source_url, "--skill", *selected, "--agent", "universal", "--copy", "-y"]
+    if full_depth:
+        args.append("--full-depth")
+    result = _run_cli(_command(*args), workdir, 300)
+    after = installed_skills(workdir)
+    if not after or not (workdir / "skills-lock.json").is_file():
+        raise VaultError("skills CLI append completed without a usable skills project")
+    output = _plain_output((result.stdout or "") + "\n" + (result.stderr or ""))
+    return {"before": before, "after": after, "output": output[-12000:]}
+
+
 def update(workdir: Path) -> Dict[str, object]:
     """Let the external CLI update its own copied skills and lock metadata."""
     if not (workdir / "skills-lock.json").is_file():

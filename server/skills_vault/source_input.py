@@ -43,6 +43,18 @@ def source_id_for(source_ref: str) -> str:
     return _slug(parts[-1] if parts else source_ref)
 
 
+def canonical_source_ref(source_ref: str) -> str:
+    value = str(source_ref or "").strip()
+    scp = re.fullmatch(r"([^@\s]+)@([^:\s]+):(.+)", value)
+    if scp:
+        return f"{scp.group(2).lower()}/{scp.group(3).strip('/').removesuffix('.git').lower()}"
+    parsed = urllib.parse.urlparse(value)
+    if parsed.scheme and parsed.hostname:
+        path = parsed.path.strip("/").removesuffix(".git").lower()
+        return f"{parsed.hostname.lower()}/{path}"
+    return value.strip("/").removesuffix(".git").lower()
+
+
 def disambiguate_source_id(base: str, source_ref: str, existing: Iterable[str]) -> str:
     existing_ids = set(existing)
     if base not in existing_ids:

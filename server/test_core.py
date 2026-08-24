@@ -816,6 +816,106 @@ class SkillsCliSourceTests(unittest.TestCase):
             self.assertEqual(preview["source_id"], "owner-repo")
             self.assertEqual(preview["skills"], ["demo"])
 
+    def test_preview_merges_a_new_skill_into_an_existing_repository_source(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "vault"
+            vault = self.make_vault(root)
+            destination = root / "sources" / "skills-cli" / "skills-101-superpowers"
+            installed = destination / ".agents" / "skills" / "twitter-automation"
+            installed.mkdir(parents=True)
+            (installed / "SKILL.md").write_text(
+                "---\nname: twitter-automation\ndescription: Existing.\n---\n",
+                encoding="utf-8",
+            )
+            write_data(destination / "skills-lock.json", {"version": 1})
+            registry = vault.registry
+            registry["sources"]["skills-101-superpowers"] = {
+                "kind": "skills-cli",
+                "url": "https://github.com/skills-101/superpowers",
+                "path": "sources/skills-cli/skills-101-superpowers",
+                "skill_root": ".agents/skills",
+                "update_policy": "self-managed",
+                "selected_skills": ["twitter-automation"],
+            }
+            write_data(vault.registry_path, registry)
+            with patch(
+                "skills_vault.services.resolve_executable",
+                return_value=ResolvedExecutable("npx", Path("/usr/bin/npx"), "PATH"),
+            ), patch(
+                "skills_vault.services.discover_skills_cli_source",
+                return_value={
+                    "skills": ["twitter-automation", "ai-image-generation"],
+                    "output": "Found 2 skills",
+                },
+            ):
+                preview = skills_cli_source_preview(
+                    vault,
+                    None,
+                    "npx skills add https://github.com/skills-101/superpowers --skill ai-image-generation",
+                )
+            self.assertEqual(preview["action"], "merge")
+            self.assertEqual(preview["source_id"], "skills-101-superpowers")
+            self.assertEqual(preview["skills_to_add"], ["ai-image-generation"])
+            self.assertEqual(preview["skills_already_present"], [])
+
+    def test_apply_merges_a_new_skill_without_replacing_existing_source(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "vault"
+            vault = self.make_vault(root)
+            destination = root / "sources" / "skills-cli" / "skills-101-superpowers"
+            installed = destination / ".agents" / "skills" / "twitter-automation"
+            installed.mkdir(parents=True)
+            (installed / "SKILL.md").write_text(
+                "---\nname: twitter-automation\ndescription: Existing.\n---\n",
+                encoding="utf-8",
+            )
+            write_data(destination / "skills-lock.json", {"version": 1})
+            registry = vault.registry
+            registry["sources"]["skills-101-superpowers"] = {
+                "kind": "skills-cli",
+                "url": "https://github.com/skills-101/superpowers",
+                "path": "sources/skills-cli/skills-101-superpowers",
+                "skill_root": ".agents/skills",
+                "update_policy": "self-managed",
+                "selected_skills": ["twitter-automation"],
+            }
+            write_data(vault.registry_path, registry)
+            with patch(
+                "skills_vault.services.resolve_executable",
+                return_value=ResolvedExecutable("npx", Path("/usr/bin/npx"), "PATH"),
+            ), patch(
+                "skills_vault.services.discover_skills_cli_source",
+                return_value={"skills": ["twitter-automation", "ai-image-generation"], "output": "Found 2 skills"},
+            ):
+                preview = skills_cli_source_preview(
+                    vault,
+                    None,
+                    "npx skills add https://github.com/skills-101/superpowers --skill ai-image-generation",
+                )
+
+            def fake_append(url: str, workdir: Path, skills, full_depth: bool):
+                added = workdir / ".agents" / "skills" / "ai-image-generation"
+                added.mkdir(parents=True)
+                (added / "SKILL.md").write_text(
+                    "---\nname: ai-image-generation\ndescription: Added.\n---\n",
+                    encoding="utf-8",
+                )
+                return {"before": ["twitter-automation"], "after": ["twitter-automation", "ai-image-generation"], "output": "added"}
+
+            with patch("skills_vault.services.add_skills_cli_source", side_effect=fake_append), patch(
+                "skills_vault.services.resolve_executable",
+                return_value=ResolvedExecutable("npx", Path("/usr/bin/npx"), "PATH"),
+            ):
+                result = skills_cli_source_apply(vault, preview["preview_token"])
+
+            self.assertEqual(result["action"], "merge")
+            self.assertTrue((installed / "SKILL.md").exists())
+            self.assertTrue((destination / ".agents" / "skills" / "ai-image-generation" / "SKILL.md").exists())
+            self.assertEqual(
+                vault.registry["sources"]["skills-101-superpowers"]["selected_skills"],
+                ["twitter-automation", "ai-image-generation"],
+            )
+
     def test_external_source_rejects_localhost(self):
         with tempfile.TemporaryDirectory() as directory:
             vault = self.make_vault(Path(directory) / "vault")

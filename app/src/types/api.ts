@@ -260,6 +260,7 @@ export interface SourceAddPreview extends PreviewTokenResponse {
   source_url: string
   source_ref?: string
   input_kind?: string
+  action?: "create" | "merge" | "unchanged"
   kind: string
   dependency?: {
     name: string
@@ -267,6 +268,8 @@ export interface SourceAddPreview extends PreviewTokenResponse {
     resolution_source: string
   }
   skills?: Array<{ name: string; path: string; description: string }> | string[]
+  skills_to_add?: string[]
+  skills_already_present?: string[]
   notes?: string[]
 }
 

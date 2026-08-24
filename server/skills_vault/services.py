@@ -43,9 +43,11 @@ from .migrations import (
 )
 from .ops import apply_updates, create_backup, install, install_plan, restore_backup, update_plan
 from .platform_adapter import current_platform
-from .source_input import disambiguate_source_id, parse_source_input
+from .source_input import canonical_source_ref, disambiguate_source_id, parse_source_input
+from .skills_cli import add_to_existing as add_skills_cli_source
 from .skills_cli import discover as discover_skills_cli_source
 from .skills_cli import install as install_skills_cli_source
+from .skills_cli import installed_skills as installed_skills_cli_source
 
 
 MANAGED_PROFILES = ("ui-shared", "ui-codex", "ui-claude")
@@ -396,6 +398,20 @@ def _validate_git_source(source_id: str, source_url: str) -> tuple[str, str]:
     return normalized_id, normalized_url
 
 
+def _find_source_by_ref(
+    registry: Dict[str, Any],
+    kind: str,
+    source_url: str,
+) -> tuple[Optional[str], Optional[Dict[str, Any]]]:
+    target = canonical_source_ref(source_url)
+    for candidate_id, candidate in registry.get("sources", {}).items():
+        if candidate.get("kind", "git") != kind:
+            continue
+        if canonical_source_ref(str(candidate.get("url", ""))) == target:
+            return candidate_id, candidate
+    return None, None
+
+
 def skills_cli_source_preview(
     vault: Vault,
     source_id: Optional[str],
@@ -410,16 +426,24 @@ def skills_cli_source_preview(
     except ValueError as exc:
         raise ServiceError("invalid_source_input", str(exc)) from exc
     source_id, source_url = _validate_external_source(spec.source_id, spec.source_url)
-    existing = vault.registry.get("sources", {})
-    existing_source = existing.get(source_id)
-    if existing_source and existing_source.get("url") == source_url:
-        raise ServiceError("already_exists", f"来源已存在：{source_id}")
-    if existing_source and explicit_source_id:
-        raise ServiceError("already_exists", f"来源已存在：{source_id}")
-    source_id = disambiguate_source_id(source_id, source_url, existing)
+    registry = vault.registry
+    existing = registry.get("sources", {})
+    matched_id, existing_source = _find_source_by_ref(registry, "skills-cli", source_url)
+    action = "create"
+    if matched_id and existing_source:
+        source_id = matched_id
+        source_url = str(existing_source.get("url") or source_url)
+        action = "merge"
+    else:
+        existing_source = existing.get(source_id)
+        if existing_source and explicit_source_id:
+            raise ServiceError("already_exists", f"来源已存在：{source_id}")
+        source_id = disambiguate_source_id(source_id, source_url, existing)
     destination = vault.root / "sources" / "skills-cli" / source_id
-    if destination.exists():
+    if action == "create" and destination.exists():
         raise ServiceError("already_exists", f"来源目录已存在：{destination}")
+    if action == "merge" and (not destination.is_dir() or not (destination / "skills-lock.json").is_file()):
+        raise ServiceError("source_missing", f"已有来源目录不完整：{destination}")
     try:
         discovery = discover_skills_cli_source(source_url, bool(full_depth or spec.full_depth))
     except VaultError as exc:
@@ -437,12 +461,18 @@ def skills_cli_source_preview(
             f"来源中不存在这些 Skills：{', '.join(unknown_skills)}",
             {"available_skills": available_skills},
         )
+    installed = installed_skills_cli_source(destination) if action == "merge" else []
     selected_skills = requested_skills or available_skills
+    skills_to_add = [skill for skill in selected_skills if skill not in installed]
+    skills_already_present = [skill for skill in selected_skills if skill in installed]
+    if action == "merge" and not skills_to_add:
+        action = "unchanged"
     tx = transaction_id("source_add")
     plan = {
         "transaction_id": tx,
         "source_id": source_id,
         "source_url": source_url,
+        "action": action,
         "input_kind": spec.input_kind,
         "dependency": {
             "name": dependency.name,
@@ -455,6 +485,9 @@ def skills_cli_source_preview(
         "destination": str(destination),
         "available_skills": available_skills,
         "skills": selected_skills,
+        "skills_to_add": skills_to_add,
+        "skills_already_present": skills_already_present,
+        "installed_skills": installed,
         "notes": [
             "Skill 文件安装到 Vault 专用目录，不直接写入用户级 Agent 目录。",
             "后续更新交给 npx skills update；Vault 记录观测摘要，但不强制锁定其版本。",
@@ -471,51 +504,109 @@ def skills_cli_source_apply(vault: Vault, token: str) -> Dict[str, Any]:
     plan = payload.get("plan") or {}
     source_id, source_url = _validate_external_source(plan.get("source_id", ""), plan.get("source_url", ""))
     registry = vault.registry
-    if source_id in registry.get("sources", {}):
+    action = str(plan.get("action") or "create")
+    if action not in ("create", "merge", "unchanged"):
+        raise ServiceError("invalid_preview", f"未知的来源操作：{action}")
+    if action in ("merge", "unchanged"):
+        matched_id, existing_source = _find_source_by_ref(registry, "skills-cli", source_url)
+        if matched_id != source_id or not existing_source:
+            raise ServiceError("stale_preview", "来源状态已变化，请重新生成 Preview")
+    elif source_id in registry.get("sources", {}):
         raise ServiceError("already_exists", f"来源已存在：{source_id}")
     destination = vault.root / "sources" / "skills-cli" / source_id
-    if destination.exists():
+    if action == "create" and destination.exists():
         raise ServiceError("already_exists", f"来源目录已存在：{destination}")
+    if action in ("merge", "unchanged") and not destination.is_dir():
+        raise ServiceError("source_missing", f"已有来源目录不存在：{destination}")
     old_registry = json.loads(json.dumps(registry))
     old_lock = load_data(vault.lock_path)
     tx = plan.get("transaction_id") or transaction_id("source_add")
-    try:
-        install_result = install_skills_cli_source(
-            source_url,
-            destination,
-            bool(plan.get("full_depth")),
-            plan.get("skills") or None,
+    if action == "unchanged":
+        installed_ids = [
+            entry["id"] for entry in vault.catalog().get("skills", []) if entry.get("source_id") == source_id
+        ]
+        _record_transaction(
+            vault,
+            tx,
+            {
+                "operation": "source.skills-cli.add",
+                "status": "unchanged",
+                "source_id": source_id,
+                "source_url": source_url,
+                "skills": installed_ids,
+            },
         )
-        registry.setdefault("sources", {})[source_id] = {
-            "kind": "skills-cli",
-            "url": source_url,
-            "path": destination.relative_to(vault.root).as_posix(),
-            "skill_root": ".agents/skills",
+        return {
+            "transaction_id": tx,
+            "status": "unchanged",
+            "action": action,
+            "source_id": source_id,
+            "skills": installed_ids,
+            "installed": installed_ids,
             "update_policy": "self-managed",
-            "full_depth": bool(plan.get("full_depth")),
-            "selected_skills": list(plan.get("skills") or []),
-            "trust": "unreviewed",
-            "license": "per-skill",
-            "reviewed_at": None,
-            "classify": [
-                {"pattern": "*/SKILL.md", "as": "published"},
-                {"pattern": "**/SKILL.md", "as": "unknown"},
-            ],
         }
+    backup_root: Optional[Path] = None
+    if action == "merge":
+        backup_root = Path(tempfile.mkdtemp(prefix="skills-vault-skills-cli-merge-"))
+        shutil.copytree(destination, backup_root / "source", symlinks=True)
+    try:
+        if action == "merge":
+            install_result = add_skills_cli_source(
+                source_url,
+                destination,
+                plan.get("skills_to_add") or [],
+                bool(plan.get("full_depth")),
+            )
+            source = registry["sources"][source_id]
+            previous = list(source.get("selected_skills") or plan.get("installed_skills") or [])
+            source["selected_skills"] = list(dict.fromkeys(previous + list(plan.get("skills_to_add") or [])))
+            source["full_depth"] = bool(source.get("full_depth") or plan.get("full_depth"))
+        else:
+            install_result = install_skills_cli_source(
+                source_url,
+                destination,
+                bool(plan.get("full_depth")),
+                plan.get("skills") or None,
+            )
+            registry.setdefault("sources", {})[source_id] = {
+                "kind": "skills-cli",
+                "url": source_url,
+                "path": destination.relative_to(vault.root).as_posix(),
+                "skill_root": ".agents/skills",
+                "update_policy": "self-managed",
+                "full_depth": bool(plan.get("full_depth")),
+                "selected_skills": list(plan.get("skills") or []),
+                "trust": "unreviewed",
+                "license": "per-skill",
+                "reviewed_at": None,
+                "classify": [
+                    {"pattern": "*/SKILL.md", "as": "published"},
+                    {"pattern": "**/SKILL.md", "as": "unknown"},
+                ],
+            }
         write_data(vault.registry_path, registry)
         vault.update_lock()
         catalog = vault.scan()
     except Exception as exc:
         write_data(vault.registry_path, old_registry)
         write_data(vault.lock_path, old_lock)
-        if destination.exists():
+        if action == "merge" and backup_root:
+            if destination.exists():
+                shutil.rmtree(destination)
+            shutil.copytree(backup_root / "source", destination, symlinks=True)
+        elif destination.exists():
             shutil.rmtree(destination)
         try:
             vault.scan()
         except Exception:
             pass
+        if backup_root:
+            shutil.rmtree(backup_root, ignore_errors=True)
         _record_transaction(vault, tx, {"operation": "source.skills-cli.add", "status": "rolled-back", "source_id": source_id, "error": str(exc)})
         raise ServiceError("source_install_failed", f"外部来源安装失败，已回滚：{exc}", {"transaction_id": tx}) from exc
+
+    if backup_root:
+        shutil.rmtree(backup_root, ignore_errors=True)
 
     installed_ids = [
         entry["id"] for entry in catalog.get("skills", []) if entry.get("source_id") == source_id
@@ -528,6 +619,7 @@ def skills_cli_source_apply(vault: Vault, token: str) -> Dict[str, Any]:
             "status": "complete",
             "source_id": source_id,
             "source_url": source_url,
+            "action": action,
             "skills": installed_ids,
             "update_policy": "self-managed",
         },
@@ -535,8 +627,10 @@ def skills_cli_source_apply(vault: Vault, token: str) -> Dict[str, Any]:
     return {
         "transaction_id": tx,
         "status": "complete",
+        "action": action,
         "source_id": source_id,
         "skills": installed_ids,
+        "added_skills": list(plan.get("skills_to_add") or plan.get("skills") or []),
         "installed": install_result.get("skills", []),
         "update_policy": "self-managed",
     }
