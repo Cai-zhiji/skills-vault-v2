@@ -29,6 +29,7 @@ from .deployment import (
     state_deployments,
 )
 from .platform_adapter import PlatformAdapter, current_platform
+from .executable_resolver import environment_for, resolve_executable
 from .skills_cli import update as update_skills_cli_source
 
 
@@ -42,7 +43,10 @@ def confirm(question: str, assume_yes: bool = False) -> bool:
 
 
 def _is_ancestor(repo: Path, older: str, newer: str) -> bool:
-    result = run(["git", "merge-base", "--is-ancestor", older, newer], cwd=repo, check=False)
+    git_executable = resolve_executable("git", current_platform())
+    if not git_executable:
+        return False
+    result = run([str(git_executable.path), "merge-base", "--is-ancestor", older, newer], cwd=repo, check=False)
     return result.returncode == 0
 
 
@@ -54,12 +58,15 @@ def _https_fallback(url: str) -> Optional[str]:
 
 
 def _fetch(repo: Path, source: Dict[str, Any]) -> None:
+    git_executable = resolve_executable("git", current_platform())
+    if not git_executable:
+        raise VaultError("Required program not found: git")
     fetch_env = dict(os.environ)
     fetch_env["GIT_TERMINAL_PROMPT"] = "0"
     try:
         run(
             [
-                "git",
+                str(git_executable.path),
                 "-c",
                 "core.sshCommand=ssh -o ConnectTimeout=5 -o BatchMode=yes",
                 "fetch",
@@ -78,7 +85,7 @@ def _fetch(repo: Path, source: Dict[str, Any]) -> None:
         try:
             run(
                 [
-                    "git",
+                    str(git_executable.path),
                     "-c",
                     "credential.interactive=never",
                     "fetch",
@@ -521,10 +528,14 @@ def doctor(vault: Vault) -> Tuple[List[str], List[str]]:
     if any(vault.source_kind(source) == "skills-cli" for source in vault.registry.get("sources", {}).values()):
         programs.append("npx")
     for program in programs:
-        path = shutil.which(program)
-        if path:
-            version = run([program, "--version"], check=False).stdout.strip()
-            checks.append(f"{program}: {version or path}")
+        resolved = resolve_executable(program, current_platform())
+        if resolved:
+            version = run(
+                [str(resolved.path), "--version"],
+                check=False,
+                env=environment_for(resolved),
+            ).stdout.strip()
+            checks.append(f"{program}: {version or resolved.path}")
         elif program in ("git", "npx"):
             errors.append(f"{program} is not installed")
         else:

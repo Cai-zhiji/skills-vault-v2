@@ -3,13 +3,14 @@ from __future__ import annotations
 
 import os
 import re
-import shutil
 import tempfile
 import time
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence
 
 from .core import VaultError, parse_frontmatter, run
+from .executable_resolver import ResolvedExecutable, environment_for, resolve_executable
+from .platform_adapter import PlatformAdapter
 
 
 ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
@@ -20,58 +21,30 @@ TRANSIENT_NETWORK_RE = re.compile(
 )
 
 
-def _version_key(path: Path) -> tuple[int, ...]:
-    values = tuple(int(value) for value in re.findall(r"\d+", path.parent.parent.name))
-    return values or (0,)
-
-
 def _home_directory() -> Path:
     return Path.home()
 
 
-def _npx_executable() -> Path:
-    """Find npx even when launchd starts the UI with its minimal default PATH."""
-    candidates: List[Path] = []
-    configured = os.environ.get("SKILLS_VAULT_NPX")
-    if configured:
-        candidates.append(Path(configured).expanduser())
-    discovered = shutil.which("npx")
-    if discovered:
-        candidates.append(Path(discovered))
-    nvm_bin = os.environ.get("NVM_BIN")
-    if nvm_bin:
-        candidates.append(Path(nvm_bin) / "npx")
-    home = _home_directory()
-    candidates.extend(
-        sorted(
-            (home / ".nvm" / "versions" / "node").glob("*/bin/npx"),
-            key=_version_key,
-            reverse=True,
-        )
-    )
-    candidates.extend(
-        [
-            home / ".volta" / "bin" / "npx",
-            home / ".fnm" / "aliases" / "default" / "bin" / "npx",
-            Path("/opt/homebrew/bin/npx"),
-            Path("/usr/local/bin/npx"),
-        ]
-    )
-    for candidate in candidates:
-        if candidate.is_file() and os.access(candidate, os.X_OK):
-            # Keep the launcher path: npx is commonly a symlink whose target lives
-            # under npm/lib, while its sibling `node` is in the launcher directory.
-            return candidate.absolute()
+def _platform_adapter() -> PlatformAdapter:
+    current = PlatformAdapter.current()
+    return PlatformAdapter(current.system, _home_directory(), current.machine)
+
+
+def _npx_resolution() -> ResolvedExecutable:
+    resolved = resolve_executable("npx", _platform_adapter())
+    if resolved:
+        return resolved
     raise VaultError(
         "npx is required for skills-cli sources; install Node.js or set SKILLS_VAULT_NPX"
     )
 
 
+def _npx_executable() -> Path:
+    return _npx_resolution().path
+
+
 def _environment() -> Dict[str, str]:
-    env = dict(os.environ)
-    node_bin = str(_npx_executable().parent)
-    path_parts = [part for part in env.get("PATH", "").split(os.pathsep) if part]
-    env["PATH"] = os.pathsep.join([node_bin, *[part for part in path_parts if part != node_bin]])
+    env = environment_for(_npx_resolution())
     env.update(
         {
             "CI": "1",
@@ -84,7 +57,11 @@ def _environment() -> Dict[str, str]:
 
 
 def _command(*args: str) -> List[str]:
-    return [str(_npx_executable()), "--yes", "skills", *args]
+    resolved = _npx_resolution()
+    command = [str(resolved.path), "--yes", "skills", *args]
+    if _platform_adapter().is_windows and resolved.path.suffix.lower() in (".cmd", ".bat"):
+        return [os.environ.get("COMSPEC", "cmd.exe"), "/d", "/s", "/c", *command]
+    return command
 
 
 def _plain_output(value: str) -> str:

@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .core import VaultError, run
+from .executable_resolver import ResolvedExecutable, environment_for, resolve_executable
 from .platform_adapter import PlatformAdapter, current_platform
 
 
@@ -43,8 +44,13 @@ def _command(adapter: PlatformAdapter, executable: Path, *args: str) -> List[str
     return [str(executable), *args]
 
 
-def _version(adapter: PlatformAdapter, executable: Path) -> Optional[str]:
-    result = run(_command(adapter, executable, "--version"), check=False, timeout=10)
+def _version(adapter: PlatformAdapter, executable: ResolvedExecutable) -> Optional[str]:
+    result = run(
+        _command(adapter, executable.path, "--version"),
+        check=False,
+        env=environment_for(executable),
+        timeout=10,
+    )
     value = ((result.stdout or "") + "\n" + (result.stderr or "")).strip().splitlines()
     return value[0][:160] if value else None
 
@@ -52,9 +58,9 @@ def _version(adapter: PlatformAdapter, executable: Path) -> Optional[str]:
 def dependency_status(adapter: Optional[PlatformAdapter] = None) -> Dict[str, Any]:
     platform = adapter or current_platform()
     dependencies: List[Dict[str, Any]] = []
-    discovered: Dict[str, Optional[Path]] = {}
+    discovered: Dict[str, Optional[ResolvedExecutable]] = {}
     for dependency in ("git", "node", "npm", "npx"):
-        executable = platform.executable(dependency)
+        executable = resolve_executable(dependency, platform)
         discovered[dependency] = executable
         metadata = DEPENDENCY_META[dependency]
         dependencies.append(
@@ -62,8 +68,9 @@ def dependency_status(adapter: Optional[PlatformAdapter] = None) -> Dict[str, An
                 "id": dependency,
                 **metadata,
                 "status": "available" if executable else "missing",
-                "path": str(executable) if executable else None,
+                "path": str(executable.path) if executable else None,
                 "version": _version(platform, executable) if executable else None,
+                "resolution_source": executable.source if executable else None,
             }
         )
     npx = discovered["npx"]
@@ -72,8 +79,9 @@ def dependency_status(adapter: Optional[PlatformAdapter] = None) -> Dict[str, An
             "id": "skills-cli",
             **DEPENDENCY_META["skills-cli"],
             "status": "unverified" if npx else "missing",
-            "path": str(npx) if npx else None,
+            "path": str(npx.path) if npx else None,
             "version": None,
+            "resolution_source": npx.source if npx else None,
             "notes": [
                 "启动检测不会访问网络；首次来源操作时才由 npx 验证 Skills CLI。"
                 if npx
@@ -83,9 +91,9 @@ def dependency_status(adapter: Optional[PlatformAdapter] = None) -> Dict[str, An
     )
     installers = []
     for provider in ("winget", "brew", "apt-get", "dnf"):
-        executable = platform.executable(provider)
+        executable = resolve_executable(provider, platform)
         if executable:
-            installers.append({"id": provider, "path": str(executable)})
+            installers.append({"id": provider, "path": str(executable.path), "resolution_source": executable.source})
     return {
         "platform": platform.platform_id,
         "architecture": platform.machine,
@@ -109,12 +117,12 @@ def dependency_install_plan(
     can_execute = False
     requires_elevation = False
     if platform.platform_id == "windows":
-        executable = platform.executable("winget")
+        executable = resolve_executable("winget", platform)
         if executable:
             provider = "winget"
             package = "Git.Git" if dependency == "git" else "OpenJS.NodeJS.LTS"
             command = [
-                str(executable),
+                str(executable.path),
                 "install",
                 "--id",
                 package,
@@ -125,15 +133,24 @@ def dependency_install_plan(
             ]
             can_execute = True
     elif platform.platform_id == "macos":
-        executable = platform.executable("brew")
+        executable = resolve_executable("brew", platform)
         if executable:
             provider = "homebrew"
-            command = [str(executable), "install", "git" if dependency == "git" else "node"]
+            command = [str(executable.path), "install", "git" if dependency == "git" else "node"]
             can_execute = True
     else:
         provider = "system-package-manager"
         package = "git" if dependency == "git" else "nodejs"
-        command = ["sudo", "apt-get", "install", package]
+        package_manager = None
+        for manager_name in ("apt-get", "dnf"):
+            package_manager = resolve_executable(manager_name, platform)
+            if package_manager:
+                break
+        if package_manager:
+            provider = package_manager.name
+            command = ["sudo", str(package_manager.path), "install", package]
+        else:
+            command = ["sudo", "apt-get", "install", package]
         requires_elevation = True
     return {
         "dependency": dependency,

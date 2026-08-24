@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from skills_vault.core import Vault, write_data
 from skills_vault.dependencies import dependency_install_plan, dependency_status
+from skills_vault.executable_resolver import ResolvedExecutable
 from skills_vault.platform_adapter import PlatformAdapter
 from skills_vault.services import ServiceError, git_source_preview
 
@@ -31,7 +32,10 @@ class DependencyTests(unittest.TestCase):
     def test_install_plans_only_auto_execute_trusted_providers(self):
         windows = PlatformAdapter("windows", Path("C:/Users/Test"), "amd64")
         linux = PlatformAdapter("linux", Path("/home/test"), "x86_64")
-        with patch.object(PlatformAdapter, "executable", return_value=Path("C:/Windows/winget.exe")):
+        with patch(
+            "skills_vault.dependencies.resolve_executable",
+            return_value=ResolvedExecutable("winget", Path("C:/Windows/winget.exe"), "PATH"),
+        ):
             plan = dependency_install_plan("git", windows)
         self.assertTrue(plan["can_execute"])
         self.assertIn("Git.Git", plan["command"])
@@ -51,8 +55,8 @@ class DependencyTests(unittest.TestCase):
             vault = Vault(root)
             vault.scan()
             adapter = PlatformAdapter("windows", Path(directory) / "home")
-            with patch("skills_vault.services.current_platform", return_value=adapter), patch.object(
-                PlatformAdapter, "executable", return_value=None
+            with patch("skills_vault.services.current_platform", return_value=adapter), patch(
+                "skills_vault.services.resolve_executable", return_value=None
             ), self.assertRaises(ServiceError) as caught:
                 git_source_preview(vault, "demo", "https://example.com/demo.git")
             self.assertEqual(caught.exception.code, "dependency_missing")

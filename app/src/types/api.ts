@@ -231,6 +231,7 @@ export interface DependencyRow {
   version: string | null
   capabilities: string[]
   official_url: string
+  resolution_source?: string | null
   notes?: string[]
 }
 
@@ -252,6 +253,21 @@ export interface DependencyInstallPreview extends PreviewTokenResponse {
   requires_elevation: boolean
   official_url: string
   notes: string[]
+}
+
+export interface SourceAddPreview extends PreviewTokenResponse {
+  source_id: string
+  source_url: string
+  source_ref?: string
+  input_kind?: string
+  kind: string
+  dependency?: {
+    name: string
+    path: string
+    resolution_source: string
+  }
+  skills?: Array<{ name: string; path: string; description: string }> | string[]
+  notes?: string[]
 }
 
 export interface SelectionPayload {

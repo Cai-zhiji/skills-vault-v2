@@ -22,7 +22,12 @@ from .ops import (
     uninstall,
     update_plan,
 )
-from .services import skills_cli_source_apply, skills_cli_source_preview
+from .services import (
+    _validate_git_source,
+    skills_cli_source_apply,
+    skills_cli_source_preview,
+)
+from .source_input import parse_source_input
 
 
 def default_root() -> Path:
@@ -41,6 +46,14 @@ def print_update_rows(rows: List[Dict[str, Any]]) -> None:
             print(f"  commits={len(row.get('commits', []))} files={len(row.get('changes', []))}")
             if row.get("risk_signals"):
                 print(f"  risks={','.join(row['risk_signals'])}")
+
+
+def _source_arguments(values: Sequence[str]) -> tuple[Optional[str], str]:
+    if len(values) == 2:
+        return values[0], values[1]
+    if not values:
+        raise VaultError("Missing source URL or command")
+    return None, " ".join(values)
 
 
 def cmd_source(vault: Vault, args: argparse.Namespace) -> int:
@@ -62,10 +75,16 @@ def cmd_source(vault: Vault, args: argparse.Namespace) -> int:
                 )
         return 0
     if args.source_command == "add":
+        source_id, source_input = _source_arguments(args.inputs)
+        try:
+            spec = parse_source_input(source_input, "git", source_id, args.branch)
+            source_id, source_url = _validate_git_source(spec.source_id, spec.source_url)
+        except ValueError as exc:
+            raise VaultError(str(exc)) from exc
         registry = vault.registry
-        if args.id in registry["sources"]:
-            raise VaultError(f"Source ID already exists: {args.id}")
-        destination = vault.root / "sources" / args.id
+        if source_id in registry["sources"]:
+            raise VaultError(f"Source ID already exists: {source_id}")
+        destination = vault.root / "sources" / source_id
         if args.adopt:
             if not destination.is_dir():
                 raise VaultError(f"Adopt target is not a directory: {destination}")
@@ -77,20 +96,20 @@ def cmd_source(vault: Vault, args: argparse.Namespace) -> int:
             existing_remote = git(destination, "remote", "get-url", "origin", check=False)
             if existing_remote:
                 # The adopted clone may use the same URL under a different transport.
-                git(destination, "remote", "set-url", "origin", args.url)
+                git(destination, "remote", "set-url", "origin", source_url)
             else:
-                git(destination, "remote", "add", "origin", args.url)
+                git(destination, "remote", "add", "origin", source_url)
             git(destination, "fetch", "--prune", "origin")
-            git(destination, "checkout", "-B", args.branch, f"origin/{args.branch}")
+            git(destination, "checkout", "-B", spec.branch, f"origin/{spec.branch}")
         elif destination.exists():
             raise VaultError(f"Destination exists: {destination}")
         else:
-            git(vault.root, "clone", "--branch", args.branch, "--", args.url, str(destination))
-        registry["sources"][args.id] = {
+            git(vault.root, "clone", "--branch", spec.branch, "--", source_url, str(destination))
+        registry["sources"][source_id] = {
             "kind": "git",
-            "url": args.url,
+            "url": source_url,
             "path": destination.relative_to(vault.root).as_posix(),
-            "branch": args.branch,
+            "branch": spec.branch,
             "track": "branch",
             "trust": "unreviewed",
             "license": "unknown",
@@ -100,14 +119,15 @@ def cmd_source(vault: Vault, args: argparse.Namespace) -> int:
         write_data(vault.registry_path, registry)
         vault.update_lock()
         vault.scan()
-        print(f"Added unreviewed source {args.id}; cataloged but not enabled.")
-        print_json(source_audit(vault, args.id))
+        print(f"Added unreviewed source {source_id}; cataloged but not enabled.")
+        print_json(source_audit(vault, source_id))
         return 0
     if args.source_command == "add-skills":
-        preview = skills_cli_source_preview(vault, args.id, args.url, args.full_depth, args.skill)
-        print(f"Discovered {len(preview.get('skills', []))} skills from {args.url}.")
+        source_id, source_input = _source_arguments(args.inputs)
+        preview = skills_cli_source_preview(vault, source_id, source_input, args.full_depth, args.skill)
+        print(f"Discovered {len(preview.get('skills', []))} skills from {source_input}.")
         result = skills_cli_source_apply(vault, preview["preview_token"])
-        print(f"Added self-managed skills-cli source {args.id}.")
+        print(f"Added self-managed skills-cli source {preview['source_id']}.")
         print_json(result)
         return 0
     if args.source_command == "review":
@@ -421,13 +441,11 @@ def build_parser() -> argparse.ArgumentParser:
         item = source_sub.add_parser(name)
         item.add_argument("--json", action="store_true")
     add = source_sub.add_parser("add")
-    add.add_argument("id")
-    add.add_argument("url")
+    add.add_argument("inputs", nargs="+")
     add.add_argument("--branch", default="main")
     add.add_argument("--adopt", action="store_true", help="Adopt an existing clean git checkout at sources/<id> instead of cloning fresh")
     add_skills = source_sub.add_parser("add-skills")
-    add_skills.add_argument("id")
-    add_skills.add_argument("url")
+    add_skills.add_argument("inputs", nargs="+")
     add_skills.add_argument("--full-depth", action="store_true")
     add_skills.add_argument("--skill", nargs="+", help="Only install the named skills")
     audit = source_sub.add_parser("audit")

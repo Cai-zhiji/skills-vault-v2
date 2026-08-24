@@ -31,6 +31,7 @@ from .dependencies import (
     dependency_status,
     execute_dependency_install,
 )
+from .executable_resolver import resolve_executable
 from .migrations import (
     apply_import,
     apply_web_v2_migration,
@@ -42,6 +43,7 @@ from .migrations import (
 )
 from .ops import apply_updates, create_backup, install, install_plan, restore_backup, update_plan
 from .platform_adapter import current_platform
+from .source_input import disambiguate_source_id, parse_source_input
 from .skills_cli import discover as discover_skills_cli_source
 from .skills_cli import install as install_skills_cli_source
 
@@ -200,8 +202,9 @@ def dependency_install_apply(vault: Vault, token: str) -> Dict[str, Any]:
         raise
 
 
-def _require_dependency(dependency: str, capability: str) -> None:
-    if not current_platform().executable(dependency):
+def _require_dependency(dependency: str, capability: str):
+    resolved = resolve_executable(dependency, current_platform())
+    if not resolved:
         raise ServiceError(
             "dependency_missing",
             f"{dependency} 未安装，无法{capability}",
@@ -211,6 +214,7 @@ def _require_dependency(dependency: str, capability: str) -> None:
                 "dependencies_endpoint": "/api/dependencies",
             },
         )
+    return resolved
 
 
 def vault_create_preview(vault: Vault, destination: str) -> Dict[str, Any]:
@@ -344,6 +348,8 @@ def _validate_external_source(source_id: str, source_url: str) -> tuple[str, str
     normalized_url = str(source_url).strip()
     if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,63}", normalized_id):
         raise ServiceError("invalid_source_id", "来源 ID 只能使用小写字母、数字和连字符")
+    if re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", normalized_url):
+        return normalized_id, normalized_url
     parsed = urllib.parse.urlparse(normalized_url)
     if parsed.scheme not in ("http", "https") or not parsed.hostname:
         raise ServiceError("invalid_source_url", "外部来源必须使用完整的 http:// 或 https:// URL")
@@ -392,26 +398,38 @@ def _validate_git_source(source_id: str, source_url: str) -> tuple[str, str]:
 
 def skills_cli_source_preview(
     vault: Vault,
-    source_id: str,
+    source_id: Optional[str],
     source_url: str,
     full_depth: bool = False,
     skills: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
-    _require_dependency("npx", "检查 Skills CLI 来源")
-    source_id, source_url = _validate_external_source(source_id, source_url)
-    if source_id in vault.registry.get("sources", {}):
+    dependency = _require_dependency("npx", "检查 Skills CLI 来源")
+    explicit_source_id = bool(str(source_id or "").strip())
+    try:
+        spec = parse_source_input(source_url, "skills-cli", source_id)
+    except ValueError as exc:
+        raise ServiceError("invalid_source_input", str(exc)) from exc
+    source_id, source_url = _validate_external_source(spec.source_id, spec.source_url)
+    existing = vault.registry.get("sources", {})
+    existing_source = existing.get(source_id)
+    if existing_source and existing_source.get("url") == source_url:
         raise ServiceError("already_exists", f"来源已存在：{source_id}")
+    if existing_source and explicit_source_id:
+        raise ServiceError("already_exists", f"来源已存在：{source_id}")
+    source_id = disambiguate_source_id(source_id, source_url, existing)
     destination = vault.root / "sources" / "skills-cli" / source_id
     if destination.exists():
         raise ServiceError("already_exists", f"来源目录已存在：{destination}")
     try:
-        discovery = discover_skills_cli_source(source_url, bool(full_depth))
+        discovery = discover_skills_cli_source(source_url, bool(full_depth or spec.full_depth))
     except VaultError as exc:
         raise ServiceError("source_discovery_failed", str(exc)) from exc
     available_skills = list(discovery.get("skills", []))
     requested_skills = list(
         dict.fromkeys(str(name).strip() for name in (skills or []) if str(name).strip())
     )
+    if not requested_skills:
+        requested_skills = spec.skills
     unknown_skills = [name for name in requested_skills if name not in available_skills]
     if unknown_skills:
         raise ServiceError(
@@ -425,9 +443,15 @@ def skills_cli_source_preview(
         "transaction_id": tx,
         "source_id": source_id,
         "source_url": source_url,
+        "input_kind": spec.input_kind,
+        "dependency": {
+            "name": dependency.name,
+            "path": str(dependency.path),
+            "resolution_source": dependency.source,
+        },
         "kind": "skills-cli",
         "update_policy": "self-managed",
-        "full_depth": bool(full_depth),
+        "full_depth": bool(full_depth or spec.full_depth),
         "destination": str(destination),
         "available_skills": available_skills,
         "skills": selected_skills,
@@ -522,7 +546,10 @@ def _clone_and_list_skills(source_url: str) -> Dict[str, Any]:
     """Clone a git source into a temp directory and report its advertised skills."""
     with tempfile.TemporaryDirectory(prefix="skills-vault-git-") as directory:
         repo = Path(directory) / "src"
-        run(["git", "clone", "--quiet", "--depth", "1", "--", source_url, str(repo)], timeout=180)
+        resolved = resolve_executable("git", current_platform())
+        if not resolved:
+            raise VaultError("Required program not found: git")
+        run([str(resolved.path), "clone", "--quiet", "--depth", "1", "--", source_url, str(repo)], timeout=180)
         skills: List[Dict[str, Any]] = []
         for skill_md in sorted(repo.rglob("SKILL.md")):
             if ".git" in skill_md.parts:
@@ -539,14 +566,25 @@ def _clone_and_list_skills(source_url: str) -> Dict[str, Any]:
 
 def git_source_preview(
     vault: Vault,
-    source_id: str,
+    source_id: Optional[str],
     source_url: str,
     branch: str = "main",
 ) -> Dict[str, Any]:
-    _require_dependency("git", "检查 Git 来源")
-    source_id, source_url = _validate_git_source(source_id, source_url)
-    if source_id in vault.registry.get("sources", {}):
+    dependency = _require_dependency("git", "检查 Git 来源")
+    explicit_source_id = bool(str(source_id or "").strip())
+    try:
+        spec = parse_source_input(source_url, "git", source_id, branch)
+    except ValueError as exc:
+        raise ServiceError("invalid_source_input", str(exc)) from exc
+    source_id, source_url = _validate_git_source(spec.source_id, spec.source_url)
+    existing = vault.registry.get("sources", {})
+    existing_source = existing.get(source_id)
+    if existing_source and existing_source.get("url") == source_url:
         raise ServiceError("already_exists", f"来源已存在：{source_id}")
+    if existing_source and explicit_source_id:
+        raise ServiceError("already_exists", f"来源已存在：{source_id}")
+    source_id = disambiguate_source_id(source_id, source_url, existing)
+    branch = spec.branch
     destination = vault.root / "sources" / source_id
     if destination.exists():
         raise ServiceError("already_exists", f"来源目录已存在：{destination}")
@@ -559,6 +597,12 @@ def git_source_preview(
         "transaction_id": tx,
         "source_id": source_id,
         "source_url": source_url,
+        "input_kind": spec.input_kind,
+        "dependency": {
+            "name": dependency.name,
+            "path": str(dependency.path),
+            "resolution_source": dependency.source,
+        },
         "kind": "git",
         "branch": branch,
         "update_policy": "strict",
@@ -577,7 +621,7 @@ def git_source_preview(
 
 
 def git_source_apply(vault: Vault, token: str) -> Dict[str, Any]:
-    _require_dependency("git", "安装 Git 来源")
+    dependency = _require_dependency("git", "安装 Git 来源")
     payload = _consume_token(vault, token, "source.git.add")
     plan = payload.get("plan") or {}
     source_id, source_url = _validate_git_source(plan.get("source_id", ""), plan.get("source_url", ""))
@@ -593,7 +637,7 @@ def git_source_apply(vault: Vault, token: str) -> Dict[str, Any]:
     tx = plan.get("transaction_id") or transaction_id("source_add")
     try:
         run(
-            ["git", "clone", "--branch", branch, "--", source_url, str(destination)],
+            [str(dependency.path), "clone", "--branch", branch, "--", source_url, str(destination)],
             timeout=300,
         )
         registry.setdefault("sources", {})[source_id] = {

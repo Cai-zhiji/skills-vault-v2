@@ -76,7 +76,13 @@ def run(
 
 
 def git(repo: Path, *args: str, check: bool = True) -> str:
-    result = run(["git", *args], cwd=repo, check=check)
+    from .executable_resolver import resolve_executable
+    from .platform_adapter import current_platform
+
+    resolved = resolve_executable("git", current_platform())
+    if not resolved:
+        raise VaultError("Required program not found: git")
+    result = run([str(resolved.path), *args], cwd=repo, check=check)
     return (result.stdout or "").strip()
 
 

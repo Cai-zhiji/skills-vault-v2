@@ -332,11 +332,12 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(source_delete_apply(self.vault, body.get("preview_token", "")))
                 return
             if self.path == "/api/sources/skills-cli/preview":
+                source_input = body.get("input") or body.get("source_url", "")
                 self.send_json(
                     skills_cli_source_preview(
                         self.vault,
                         body.get("source_id", ""),
-                        body.get("source_url", ""),
+                        source_input,
                         bool(body.get("full_depth")),
                         body.get("skills") or [],
                     )
@@ -349,11 +350,12 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 return
             if self.path == "/api/sources/git/preview":
+                source_input = body.get("input") or body.get("source_url", "")
                 self.send_json(
                     git_source_preview(
                         self.vault,
                         body.get("source_id", ""),
-                        body.get("source_url", ""),
+                        source_input,
                         body.get("branch", "main"),
                     )
                 )

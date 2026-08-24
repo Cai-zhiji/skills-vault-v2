@@ -61,6 +61,7 @@ import type {
   DependenciesPayload,
   DependencyInstallPreview,
   PreviewTokenResponse,
+  SourceAddPreview,
   SourceRow,
   UpdatePreview,
   UpdateSourceRow,
@@ -73,14 +74,6 @@ interface SourcePolicyPreview extends PreviewTokenResponse {
   skill_count: number
   target_enabled: boolean
   notes: string[]
-}
-
-interface SourceAddPreview extends PreviewTokenResponse {
-  source_id: string
-  source_url: string
-  kind: string
-  skills?: Array<{ name: string; path: string; description: string }> | string[]
-  notes?: string[]
 }
 
 function updateStatus(row: UpdateSourceRow | undefined, source: SourceRow) {
@@ -107,8 +100,7 @@ export function SourcesPage() {
   const [policyPreview, setPolicyPreview] = useState<SourcePolicyPreview | null>(null)
   const [addOpen, setAddOpen] = useState(false)
   const [addKind, setAddKind] = useState<"git" | "skills-cli">("git")
-  const [sourceId, setSourceId] = useState("")
-  const [sourceUrl, setSourceUrl] = useState("")
+  const [sourceInput, setSourceInput] = useState("")
   const [branch, setBranch] = useState("main")
   const [addPreview, setAddPreview] = useState<SourceAddPreview | null>(null)
   const [dependenciesOpen, setDependenciesOpen] = useState(false)
@@ -267,8 +259,7 @@ export function SourcesPage() {
       "验证地址并发现可用 Skills",
       () =>
         api.post<SourceAddPreview>(endpoint, {
-          source_id: sourceId.trim(),
-          source_url: sourceUrl.trim(),
+          input: sourceInput.trim(),
           branch,
           full_depth: false,
         }),
@@ -294,8 +285,7 @@ export function SourcesPage() {
     if (result) {
       setAddPreview(null)
       setAddOpen(false)
-      setSourceId("")
-      setSourceUrl("")
+      setSourceInput("")
       await refresh()
     }
   }
@@ -476,15 +466,18 @@ export function SourcesPage() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
-            <Select value={addKind} onValueChange={(value) => setAddKind((value || "git") as "git" | "skills-cli")}>
+            <Select value={addKind} onValueChange={(value) => { setAddKind((value || "git") as "git" | "skills-cli"); setAddPreview(null) }}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="git">Git 严格锁定</SelectItem>
                 <SelectItem value="skills-cli">Skills CLI 自管理</SelectItem>
               </SelectContent>
             </Select>
-            <Input value={sourceId} onChange={(event) => setSourceId(event.target.value)} placeholder="source-id" />
-            <Input value={sourceUrl} onChange={(event) => setSourceUrl(event.target.value)} placeholder="https://github.com/owner/repo.git" />
+            <Input
+              value={sourceInput}
+              onChange={(event) => { setSourceInput(event.target.value); setAddPreview(null) }}
+              placeholder={addKind === "git" ? "Git 地址或 git clone 命令" : "Skills 地址或 npx skills add 命令"}
+            />
             {addKind === "git" && (
               <Input value={branch} onChange={(event) => setBranch(event.target.value)} placeholder="main" />
             )}
@@ -493,7 +486,9 @@ export function SourcesPage() {
                 <div className="flex items-center gap-2 font-medium text-[var(--safe)]">
                   <ShieldCheck className="size-4" /> Preview 已就绪
                 </div>
-                <p className="mt-2 text-muted-foreground">来源 {addPreview.source_id} 已通过检查，可确认安装。</p>
+                <p className="mt-2 text-muted-foreground">
+                  自动名称：{addPreview.source_id}；{addPreview.dependency ? `使用 ${addPreview.dependency.name}（${addPreview.dependency.resolution_source}）` : "已通过检查"}
+                </p>
               </div>
             )}
             {!sourceDependencyReady && (
@@ -513,7 +508,7 @@ export function SourcesPage() {
             {addPreview ? (
               <Button onClick={() => void applyAdd()}><Plus /> 添加来源</Button>
             ) : (
-              <Button onClick={() => void previewAdd()} disabled={!sourceId.trim() || !sourceUrl.trim() || !sourceDependencyReady}>
+              <Button onClick={() => void previewAdd()} disabled={!sourceInput.trim() || !sourceDependencyReady}>
                 <RefreshCw /> 检查来源
               </Button>
             )}

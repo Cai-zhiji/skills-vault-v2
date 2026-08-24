@@ -18,6 +18,7 @@ from skills_vault.core import (
     tree_fingerprint,
     write_data,
 )
+from skills_vault.executable_resolver import ResolvedExecutable
 from skills_vault.ops import (
     _https_fallback,
     _reset_user_skill_dirs,
@@ -741,7 +742,7 @@ class SkillsCliSourceTests(unittest.TestCase):
             npx.chmod(0o755)
             node.chmod(0o755)
             with patch("skills_vault.skills_cli._home_directory", return_value=home), patch(
-                "skills_vault.skills_cli.shutil.which", return_value=None
+                "skills_vault.executable_resolver.shutil.which", return_value=None
             ), patch.dict(
                 os.environ,
                 {"PATH": "/usr/bin:/bin", "NVM_BIN": "", "SKILLS_VAULT_NPX": ""},
@@ -777,6 +778,43 @@ class SkillsCliSourceTests(unittest.TestCase):
                     ["missing"],
                 )
             self.assertEqual(caught.exception.code, "unknown_skill")
+
+    def test_preview_generates_source_id_from_url(self):
+        with tempfile.TemporaryDirectory() as directory:
+            vault = self.make_vault(Path(directory) / "vault")
+            with patch(
+                "skills_vault.services.resolve_executable",
+                return_value=ResolvedExecutable("npx", Path("/usr/bin/npx"), "PATH"),
+            ), patch(
+                "skills_vault.services.discover_skills_cli_source",
+                return_value={"skills": ["demo"], "output": "Found 1 skills"},
+            ):
+                preview = skills_cli_source_preview(
+                    vault,
+                    None,
+                    "https://github.com/owner/repo",
+                )
+            self.assertEqual(preview["source_id"], "owner-repo")
+            self.assertEqual(preview["input_kind"], "reference")
+
+    def test_preview_accepts_complete_skills_cli_command(self):
+        with tempfile.TemporaryDirectory() as directory:
+            vault = self.make_vault(Path(directory) / "vault")
+            with patch(
+                "skills_vault.services.resolve_executable",
+                return_value=ResolvedExecutable("npx", Path("/usr/bin/npx"), "PATH"),
+            ), patch(
+                "skills_vault.services.discover_skills_cli_source",
+                return_value={"skills": ["demo"], "output": "Found 1 skills"},
+            ) as discover:
+                preview = skills_cli_source_preview(
+                    vault,
+                    None,
+                    "npx skills add owner/repo --skill demo",
+                )
+            discover.assert_called_once_with("owner/repo", False)
+            self.assertEqual(preview["source_id"], "owner-repo")
+            self.assertEqual(preview["skills"], ["demo"])
 
     def test_external_source_rejects_localhost(self):
         with tempfile.TemporaryDirectory() as directory:
