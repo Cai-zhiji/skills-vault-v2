@@ -111,8 +111,8 @@ export function VaultMenu() {
     <>
       <DropdownMenu>
         <DropdownMenuTrigger render={<Button variant="ghost" className="vault-menu-trigger" disabled={busy} />}>
-          <span className="grid size-7 shrink-0 place-items-center border border-border bg-background"><Vault className="size-3.5" /></span>
-          <span className="min-w-0 text-left"><span className="block truncate text-xs font-semibold">{vaultLabel(status?.active_vault)}</span><span className="block truncate font-data text-[9px] text-muted-foreground">{status?.active_vault || "选择一个本地工作区"}</span></span>
+          <span className="vault-menu-mark"><Vault className="size-3.5" /></span>
+          <span className="min-w-0 text-left"><span className="vault-menu-title"><span className="vault-status-dot" />{vaultLabel(status?.active_vault)}</span><span className="vault-menu-path">{status?.active_vault || "选择一个本地工作区"}</span></span>
           <ChevronDown className="ml-auto size-3.5 shrink-0 opacity-50" />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-80">

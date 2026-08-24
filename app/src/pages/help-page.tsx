@@ -10,5 +10,44 @@ const topics = [
 ]
 
 export function HelpPage() {
-  return <div className="page-stack help-page"><section className="help-hero"><div><p className="eyebrow">FIELD MANUAL / LOCAL FIRST</p><h2>使用帮助</h2><p>把 Skills Vault 当作一个本地仓库工作台：先理解状态，再确认写入，最后留下可追踪的记录。</p></div><div className="help-index">SV<br /><span>02.1</span></div></section><section className="help-grid">{topics.map(({ icon: Icon, title, text }) => <article className="help-topic" key={title}><Icon /><div><h3>{title}</h3><p>{text}</p></div></article>)}</section><section className="help-faq"><p className="eyebrow">QUICK ANSWERS</p><h3>常见操作</h3><dl><div><dt>如何切换仓库？</dt><dd>点击左上角当前 Vault 菜单，选择“切换 Vault”或最近使用的 Vault。</dd></div><div><dt>如何退出当前仓库？</dt><dd>在当前 Vault 菜单中选择“退出当前 Vault”。应用会回到选择页，不会删除仓库文件。</dd></div><div><dt>为什么保存后平台还没变化？</dt><dd>保存的是选择状态；还需要在 Skills 页面确认安装 Preview，并应用到对应平台。</dd></div></dl></section></div>
+  return (
+    <div className="page-stack help-page">
+      <section className="help-hero">
+        <div className="help-hero-copy">
+          <p className="eyebrow">FIELD MANUAL / LOCAL FIRST</p>
+          <h2>使用帮助</h2>
+          <p>把 Skills Vault 当作一个本地仓库工作台：先理解状态，再确认写入，最后留下可追踪的记录。</p>
+        </div>
+        <div className="help-index" aria-label="Skills Vault help manual version">
+          <span className="help-index-mark">SV</span>
+          <span className="help-index-rule" />
+          <span className="help-index-version">02.1 / FIELD NOTES</span>
+        </div>
+      </section>
+
+      <section className="help-section-heading">
+        <div><p className="eyebrow">READ THE WORKBENCH</p><h3>从这里开始</h3></div>
+        <p>每一块说明都对应一个你会在工作台中遇到的真实动作。</p>
+      </section>
+
+      <section className="help-grid">
+        {topics.map(({ icon: Icon, title, text }, index) => (
+          <article className="help-topic" key={title}>
+            <div className="help-topic-index">0{index + 1}</div>
+            <Icon className="help-topic-icon" />
+            <div><h3>{title}</h3><p>{text}</p></div>
+          </article>
+        ))}
+      </section>
+
+      <section className="help-faq">
+        <div className="help-section-heading"><div><p className="eyebrow">QUICK ANSWERS</p><h3>常见操作</h3></div><p>不确定下一步时，先看这里。</p></div>
+        <dl>
+          <div><dt>如何切换仓库？</dt><dd>点击左上角当前 Vault 菜单，选择“切换 Vault”或最近使用的 Vault。</dd></div>
+          <div><dt>如何退出当前仓库？</dt><dd>在当前 Vault 菜单中选择“退出当前 Vault”。应用会回到选择页，不会删除仓库文件。</dd></div>
+          <div><dt>为什么保存后平台还没变化？</dt><dd>保存的是选择状态；还需要在 Skills 页面确认安装 Preview，并应用到对应平台。</dd></div>
+        </dl>
+      </section>
+    </div>
+  )
 }
