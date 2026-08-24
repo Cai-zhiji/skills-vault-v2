@@ -508,7 +508,7 @@ export function SkillsPage() {
                       checked={selectedSkillIds.has(skill.id)}
                       onChange={() => toggleSkill(skill.id)}
                       onClick={(event) => event.stopPropagation()}
-                      className="ml-1 size-4 shrink-0 accent-[var(--copper)]"
+                      className="size-4 shrink-0 accent-[var(--copper)]"
                     />
                     <button
                       type="button"

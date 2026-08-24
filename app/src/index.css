@@ -343,7 +343,8 @@ code {
   display: flex;
   min-width: 0;
   align-items: center;
-  gap: 2px;
+  gap: 12px;
+  padding-left: 14px;
 }
 
 .skill-row + .skill-row {
@@ -361,7 +362,7 @@ code {
   gap: 12px;
   border: 0;
   background: transparent;
-  padding: 13px 14px;
+  padding: 13px 14px 13px 0;
   text-align: left;
   cursor: pointer;
 }
