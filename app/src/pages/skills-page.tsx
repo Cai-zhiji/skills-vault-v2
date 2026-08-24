@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   ArrowRight,
   Boxes,
+  Check,
   FileDiff,
   FilePlus2,
   Filter,
@@ -467,7 +468,7 @@ export function SkillsPage() {
               aria-label={allFilteredSelected ? "取消选择当前结果" : "选择当前结果"}
               checked={allFilteredSelected}
               onChange={toggleFilteredSkills}
-              className="size-4 accent-[var(--copper)]"
+              className="skill-check"
             />
             <div>
             <p className="eyebrow">CATALOG ENTRIES</p>
@@ -492,7 +493,7 @@ export function SkillsPage() {
             ))}
           </div>
         ) : filteredSkills.length ? (
-          <div className="skill-list">
+          <div className={cn("skill-list", selectedSkillIds.size > 0 && "is-selecting")}>
             {filteredSkills.map((skill) => {
               const mode = draft[skill.id] || "off"
               const platforms = new Set(skill.compatibility.platforms)
@@ -500,24 +501,41 @@ export function SkillsPage() {
                 selectionQuery.data?.conflicts[skill.name.toLowerCase()],
               )
               return (
-                <article className="skill-row" key={skill.id}>
-                  <div className="skill-row-select">
-                    <input
-                      type="checkbox"
-                      aria-label={`选择 ${skill.name}`}
-                      checked={selectedSkillIds.has(skill.id)}
-                      onChange={() => toggleSkill(skill.id)}
-                      onClick={(event) => event.stopPropagation()}
-                      className="size-4 shrink-0 accent-[var(--copper)]"
-                    />
+                <article
+                  className={cn(
+                    "skill-row",
+                    selectedSkillIds.has(skill.id) && "skill-row-selected",
+                  )}
+                  key={skill.id}
+                >
+                  <div className="skill-row-main">
                     <button
                       type="button"
-                      className="skill-row-main"
+                      className={cn(
+                        "skill-glyph",
+                        selectedSkillIds.has(skill.id) && "skill-glyph-selected",
+                      )}
+                      aria-label={
+                        selectedSkillIds.has(skill.id)
+                          ? `取消选择 ${skill.name}`
+                          : `选择 ${skill.name}`
+                      }
+                      aria-pressed={selectedSkillIds.has(skill.id)}
+                      onClick={() => toggleSkill(skill.id)}
+                    >
+                      {selectedSkillIds.has(skill.id) ? (
+                        <Check className="size-4" strokeWidth={2.5} aria-hidden="true" />
+                      ) : (
+                        <span aria-hidden="true">
+                          {skill.name.slice(0, 2).toUpperCase()}
+                        </span>
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      className="skill-row-body"
                       onClick={() => setSelectedSkillId(skill.id)}
                     >
-                      <div className="skill-glyph" aria-hidden="true">
-                        {skill.name.slice(0, 2).toUpperCase()}
-                      </div>
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
                           <h2 className="font-medium text-foreground">{skill.name}</h2>

@@ -339,12 +339,44 @@ code {
   transition: background 120ms ease;
 }
 
-.skill-row-select {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 12px;
-  padding-left: 14px;
+.skill-check {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  border: 1px solid var(--graphite-soft);
+  background: var(--surface-strong);
+  cursor: pointer;
+  position: relative;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.skill-check:hover {
+  border-color: var(--copper);
+}
+
+.skill-check:checked {
+  border-color: var(--copper-deep);
+  background: var(--copper);
+}
+
+.skill-check:checked::after {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 2px;
+  width: 5px;
+  height: 9px;
+  border: solid var(--surface-strong);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.skill-check:focus-visible {
+  outline: 2px solid var(--copper);
+  outline-offset: 2px;
 }
 
 .skill-row + .skill-row {
@@ -355,28 +387,38 @@ code {
   background: #fbfcf9;
 }
 
+.skill-row-selected {
+  background: color-mix(in srgb, var(--copper) 6%, var(--surface));
+}
+
+.skill-row-selected:hover {
+  background: color-mix(in srgb, var(--copper) 9%, var(--surface));
+}
+
 .skill-row-main {
   display: grid;
   min-width: 0;
   grid-template-columns: 34px minmax(0, 1fr);
   gap: 12px;
-  border: 0;
-  background: transparent;
-  padding: 13px 14px 13px 0;
-  text-align: left;
-  cursor: pointer;
+  padding: 13px 14px;
 }
 
-.skill-row-main:focus-visible,
-.ledger-entry:focus-visible {
-  outline: 2px solid var(--copper);
-  outline-offset: -2px;
+.skill-row-body {
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
 }
 
 .skill-glyph {
   display: grid;
   width: 32px;
   height: 32px;
+  flex: 0 0 auto;
+  align-self: center;
   place-items: center;
   border: 1px solid var(--graphite);
   background: var(--bench);
@@ -385,6 +427,36 @@ code {
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.05em;
+  padding: 0;
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease, color 120ms ease;
+}
+
+.skill-glyph:hover {
+  border-color: var(--copper);
+  color: var(--copper-deep);
+}
+
+.skill-glyph-selected {
+  border-color: var(--copper-deep);
+  background: var(--copper);
+  color: var(--surface-strong);
+}
+
+.skill-glyph-selected:hover {
+  border-color: var(--copper-deep);
+  color: var(--surface-strong);
+}
+
+.skill-glyph:focus-visible,
+.skill-row-body:focus-visible {
+  outline: 2px solid var(--copper);
+  outline-offset: 2px;
+}
+
+.ledger-entry:focus-visible {
+  outline: 2px solid var(--copper);
+  outline-offset: -2px;
 }
 
 .skill-row-control {
@@ -1187,10 +1259,6 @@ code {
 
   .skill-row {
     grid-template-columns: 1fr;
-  }
-
-  .skill-row-select {
-    align-items: stretch;
   }
 
   .skill-row-control {
