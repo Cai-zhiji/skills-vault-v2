@@ -19,6 +19,7 @@ from .core import (
     now_iso,
     parse_frontmatter,
     run,
+    tree_fingerprint,
     write_data,
 )
 from .deployment import (
@@ -31,6 +32,82 @@ from .deployment import (
 from .platform_adapter import PlatformAdapter, current_platform
 from .executable_resolver import environment_for, resolve_executable
 from .skills_cli import update as update_skills_cli_source
+
+
+def _discovered_vault_deployments(
+    vault: Vault, adapter: Optional[PlatformAdapter] = None
+) -> List[Dict[str, Any]]:
+    """Find Vault-owned symlinks even when install-state.json was lost.
+
+    Restore/migration can restore the platform directories without restoring
+    the corresponding state file.  Treating the filesystem as a secondary
+    source of truth lets a subsequent install/uninstall reconcile those links
+    without touching unrelated user files.
+    """
+
+    platform_adapter = adapter or current_platform()
+    catalog = load_data(vault.root / "catalog" / "catalog.json", {"skills": []})
+    targets = {
+        (vault.root / entry["path"]).resolve(): entry
+        for entry in catalog.get("skills", [])
+        if entry.get("path") and (vault.root / entry["path"]).is_dir()
+    }
+    discovered: List[Dict[str, Any]] = []
+    for platform_name, directory in platform_adapter.agent_skill_dirs().items():
+        if not directory.is_dir():
+            continue
+        for destination in directory.iterdir():
+            if not destination.is_symlink():
+                continue
+            target = destination.resolve(strict=False)
+            entry = targets.get(target)
+            if not entry:
+                try:
+                    relative_target = target.relative_to(vault.root.resolve())
+                except ValueError:
+                    continue
+                # A deleted Vault skill is no longer in the catalog, but its
+                # stale symlink is still safely identifiable by its target.
+                if not relative_target.parts or relative_target.parts[0] not in {"my-skills", "sources"}:
+                    continue
+                discovered.append(
+                    {
+                        "path": str(destination),
+                        "target": str(target),
+                        "skill_id": f"vault/{relative_target.as_posix()}",
+                        "platform": platform_name,
+                        "deployment_type": "symlink",
+                        "source_fingerprint": "missing",
+                        "deployed_fingerprint": "missing",
+                    }
+                )
+                continue
+            discovered.append(
+                {
+                    "path": str(destination),
+                    "target": str(target),
+                    "skill_id": entry["id"],
+                    "platform": platform_name,
+                    "deployment_type": "symlink",
+                    "source_fingerprint": tree_fingerprint(target),
+                    "deployed_fingerprint": tree_fingerprint(target),
+                }
+            )
+    return discovered
+
+
+def _known_deployments(
+    vault: Vault,
+    state: Dict[str, Any],
+    adapter: Optional[PlatformAdapter] = None,
+) -> List[Dict[str, Any]]:
+    """Merge persisted deployments with recoverable filesystem evidence."""
+
+    rows = state_deployments(state)
+    by_path = {str(row.get("path")): row for row in rows if row.get("path")}
+    for row in _discovered_vault_deployments(vault, adapter):
+        by_path.setdefault(row["path"], row)
+    return list(by_path.values())
 
 
 def confirm(question: str, assume_yes: bool = False) -> bool:
@@ -692,7 +769,11 @@ def install_plan(
                     "deployment_type": platform_adapter.default_deployment_type,
                 }
             )
-    current = state_deployments(load_data(vault.state_dir / "install-state.json", {"links": []}))
+    current = _known_deployments(
+        vault,
+        load_data(vault.state_dir / "install-state.json", {"links": []}),
+        platform_adapter,
+    )
     current_by_path = {item.get("path"): item for item in current}
     desired_by_path = {item["path"]: item for item in operations}
     added = [item for path, item in desired_by_path.items() if path not in current_by_path]
@@ -738,7 +819,7 @@ def install(
         raise VaultError("Install cancelled")
     backup = backup_path
     old_state = load_data(vault.state_dir / "install-state.json", {"links": []})
-    old_deployments = state_deployments(old_state)
+    old_deployments = _known_deployments(vault, old_state, platform_adapter)
     managed_by_path = {
         str(item.get("path")): item
         for item in old_deployments
@@ -789,7 +870,7 @@ def install(
 def uninstall(vault: Vault, assume_yes: bool = False) -> int:
     state_path = vault.state_dir / "install-state.json"
     state = load_data(state_path, {"links": []})
-    deployments = state_deployments(state)
+    deployments = _known_deployments(vault, state)
     if not deployments:
         return 0
     if not confirm(f"Remove {len(deployments)} Skills Vault-managed deployments?", assume_yes):
@@ -810,7 +891,17 @@ def restore_backup(vault: Vault, backup_id: str, assume_yes: bool = False) -> Pa
     if not confirm(f"Replace current user-level skill directories with backup {backup_id}?", assume_yes):
         raise VaultError("Restore cancelled")
     _restore_backup_path(vault, backup)
-    write_data(vault.state_dir / "install-state.json", {"schema_version": 2, "deployments": [], "links": [], "restored_at": now_iso(), "backup": backup_id})
+    deployments = _discovered_vault_deployments(vault)
+    write_data(
+        vault.state_dir / "install-state.json",
+        {
+            "schema_version": 2,
+            "deployments": deployments,
+            "links": legacy_links(deployments),
+            "restored_at": now_iso(),
+            "backup": backup_id,
+        },
+    )
     return backup
 
 

@@ -19,6 +19,7 @@ from skills_vault.core import (
     write_data,
 )
 from skills_vault.executable_resolver import ResolvedExecutable
+from skills_vault.platform_adapter import PlatformAdapter
 from skills_vault.ops import (
     _https_fallback,
     _reset_user_skill_dirs,
@@ -319,6 +320,55 @@ class BackupTests(unittest.TestCase):
             self.assertEqual((home / ".claude/commands/old.md").read_text(), "command")
             self.assertEqual((home / ".codex/skills/legacy").read_text(), "legacy")
             self.assertEqual((home / ".codex/skills/.system/keep").read_text(), "system")
+
+    def test_install_reconciles_vault_symlinks_when_state_is_empty(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            root = base / "vault"
+            home = base / "home"
+            skill = root / "my-skills" / "demo"
+            skill.mkdir(parents=True)
+            (skill / "SKILL.md").write_text(
+                "---\nname: demo\ndescription: Demo.\n---\n\nRun demo.\n",
+                encoding="utf-8",
+            )
+            (root / "profiles").mkdir(parents=True)
+            write_data(root / "profiles" / "base.yaml", {"schema_version": 1, "include": []})
+            write_data(root / "registry.yaml", {"schema_version": 1, "sources": {}})
+            write_data(root / "lock.yaml", {"schema_version": 1, "sources": {}})
+            write_data(root / "annotations" / "skills.yaml", {"schema_version": 1, "skills": {}})
+            write_data(
+                root / "catalog" / "catalog.json",
+                {
+                    "schema_version": 1,
+                    "fingerprint": "fixture",
+                    "skills": [
+                        {
+                            "id": "my/demo",
+                            "name": "demo",
+                            "path": "my-skills/demo",
+                            "classification": "published",
+                            "requires": [],
+                            "compatibility": {"level": "both", "platforms": ["codex", "claude"]},
+                        }
+                    ],
+                },
+            )
+            destination = home / ".agents" / "skills" / "demo"
+            destination.parent.mkdir(parents=True)
+            destination.symlink_to(skill, target_is_directory=True)
+            stale_destination = home / ".agents" / "skills" / "prompt-polisher"
+            stale_destination.symlink_to(root / "my-skills" / "prompt-polisher", target_is_directory=True)
+            write_data(root / ".vault" / "install-state.json", {"schema_version": 2, "deployments": [], "links": []})
+
+            vault = Vault(root)
+            adapter = PlatformAdapter(system="darwin", home=home)
+            install(vault, ["base"], assume_yes=True, adapter=adapter)
+
+            self.assertFalse(destination.exists())
+            self.assertFalse(stale_destination.exists())
+            state = load_data(root / ".vault" / "install-state.json")
+            self.assertEqual(state["deployments"], [])
 
     def test_github_ssh_https_fallback(self):
         self.assertEqual(
