@@ -1,6 +1,10 @@
 {
   "schema_version": 1,
   "description": "UI-managed skills shared by Codex and Claude Code.",
+  "platforms": [
+    "codex",
+    "claude"
+  ],
   "include": [
     "anthropic/canvas-design",
     "anthropic/frontend-design",

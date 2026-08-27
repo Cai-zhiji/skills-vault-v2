@@ -41,6 +41,7 @@ from skills_vault.services import (
     install_preview,
     managed_selection_payload,
     personal_catalog_state,
+    restore_preview,
     scan_catalog,
     save_skill_guide,
     skill_guide_template,
@@ -123,6 +124,34 @@ class V2CatalogAndUpdateTests(unittest.TestCase):
             self.assertEqual(result["changed"], ["my/demo"])
             self.assertTrue(result["catalog_state"]["fresh"])
 
+    def test_catalog_omits_unsafe_and_windows_reserved_skill_names(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            vault = self.make_personal_vault(root)
+            skill_md = root / "my-skills" / "demo" / "SKILL.md"
+            for name in ("../../outside", "con"):
+                skill_md.write_text(f"---\nname: {name}\ndescription: unsafe\n---\n")
+                self.assertEqual(vault.scan()["skills"], [])
+
+    def test_legacy_profile_without_platform_does_not_enable_lux(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            vault = self.make_personal_vault(root)
+            write_data(root / "profiles" / "legacy.yaml", {"schema_version": 1, "include": ["my/demo"]})
+            vault.scan()
+            self.assertEqual(vault.resolve_profile_details(["legacy"], "lux")["direct"], [])
+
+    def test_legacy_catalog_is_rebuilt_with_lux_metadata(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            vault = self.make_personal_vault(root)
+            write_data(root / "catalog" / "catalog.json", {"schema_version": 1, "skills": []})
+            catalog = vault.catalog()
+            skill = catalog["skills"][0]
+            self.assertEqual(catalog["schema_version"], 2)
+            self.assertIn("lux", skill["compatibility"]["platforms"])
+            self.assertEqual(skill["invocation"]["lux"], "/skill load demo")
+
     def test_update_preview_excludes_dirty_fast_forward_source(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -197,7 +226,7 @@ class RepositoryIntegrationTests(unittest.TestCase):
         self.assertIn("academic/scientific-toolkit-skill", ids)
         self.assertIn("my/cloudbase", ids)
 
-    def test_base_profile_resolves_for_both_platforms(self):
+    def test_legacy_base_profile_remains_codex_and_claude_only(self):
         with patch.object(Vault, "disabled_source_ids", return_value=set()):
             for platform in ("codex", "claude"):
                 entries, _ = self.vault.resolve_profile(["base", "academic"], platform)
@@ -290,7 +319,12 @@ class BackupTests(unittest.TestCase):
             }
             vault = Vault(root)
             with patch("skills_vault.ops.install_plan", return_value=plan):
-                install(vault, ["base"], assume_yes=True)
+                install(
+                    vault,
+                    ["base"],
+                    assume_yes=True,
+                    adapter=PlatformAdapter("darwin", base / "home"),
+                )
             self.assertTrue(destination.is_symlink())
             self.assertEqual(destination.resolve(), new_target.resolve())
             installed = load_data(state / "install-state.json")
@@ -340,7 +374,7 @@ class BackupTests(unittest.TestCase):
             write_data(
                 root / "catalog" / "catalog.json",
                 {
-                    "schema_version": 1,
+                    "schema_version": 2,
                     "fingerprint": "fixture",
                     "skills": [
                         {
@@ -349,7 +383,7 @@ class BackupTests(unittest.TestCase):
                             "path": "my-skills/demo",
                             "classification": "published",
                             "requires": [],
-                            "compatibility": {"level": "both", "platforms": ["codex", "claude"]},
+                            "compatibility": {"level": "both", "platforms": ["codex", "claude", "lux"]},
                         }
                     ],
                 },
@@ -369,6 +403,13 @@ class BackupTests(unittest.TestCase):
             self.assertFalse(stale_destination.exists())
             state = load_data(root / ".vault" / "install-state.json")
             self.assertEqual(state["deployments"], [])
+
+    def test_restore_preview_rejects_backup_path_traversal(self):
+        with tempfile.TemporaryDirectory() as directory:
+            vault = Vault(Path(directory))
+            with self.assertRaises(ServiceError) as caught:
+                restore_preview(vault, "../outside")
+            self.assertEqual(caught.exception.code, "invalid_backup")
 
     def test_github_ssh_https_fallback(self):
         self.assertEqual(
@@ -449,13 +490,13 @@ class ManagedSelectionTests(unittest.TestCase):
                     "path": f"my-skills/{name}",
                     "classification": "published",
                     "requires": [],
-                    "compatibility": {"level": "both", "platforms": ["codex", "claude"]},
+                    "compatibility": {"level": "both", "platforms": ["codex", "claude", "lux"]},
                 }
             )
         write_data(
             root / "catalog" / "catalog.json",
             {
-                "schema_version": 1,
+                "schema_version": 2,
                 "fingerprint": "fixture",
                 "generated_at": "test",
                 "counts": {"skills": 2, "published": 2, "conflict_groups": 1, "duplicate_ids": 0},
@@ -478,37 +519,64 @@ class ManagedSelectionTests(unittest.TestCase):
             vault = self.make_vault(root)
             result = save_managed_selection(vault, {"my/one": "codex"})
             self.assertEqual(result["selections"], {"my/one": "codex"})
-            self.assertEqual(vault.active_profiles(), ["ui-shared", "ui-codex", "ui-claude"])
-            write_data(
-                vault.state_dir / "install-state.json",
-                {
-                    "links": [
-                        {
-                            "path": "/tmp/.agents/skills/duplicate",
-                            "target": str(root / "my-skills" / "one"),
-                            "skill_id": "my/one",
-                            "platform": "codex",
-                        }
-                    ]
-                },
+            self.assertEqual(vault.active_profiles(), ["ui-shared", "ui-codex", "ui-claude", "ui-lux"])
+            install(
+                vault,
+                vault.active_profiles(),
+                assume_yes=True,
+                adapter=PlatformAdapter("windows", root / "home"),
             )
             codex = vault.resolve_profile_details(vault.active_profiles(), "codex")
             claude = vault.resolve_profile_details(vault.active_profiles(), "claude")
             self.assertTrue(codex["status"]["my/one"]["installed"])
             self.assertNotIn("my/one", claude["status"])
 
+    def test_legacy_both_mode_does_not_enable_lux(self):
+        with tempfile.TemporaryDirectory() as directory:
+            vault = self.make_vault(Path(directory))
+            result = save_managed_selection(vault, {"my/one": "both"})
+            self.assertEqual(result["selections"], {"my/one": "both"})
+            self.assertEqual(result["resolved"]["lux"]["direct"], [])
+
+    def test_three_platform_combinations_round_trip(self):
+        with tempfile.TemporaryDirectory() as directory:
+            vault = self.make_vault(Path(directory))
+            for mode in ("all", "codex-lux", "claude-lux", "lux"):
+                result = save_managed_selection(vault, {"my/one": mode})
+                self.assertEqual(result["selections"], {"my/one": mode})
+
+    def test_install_preview_expires_when_skill_content_changes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "vault"
+            home = Path(directory) / "home"
+            vault = self.make_vault(root)
+            save_managed_selection(vault, {"my/one": "all"})
+            with patch("pathlib.Path.home", return_value=home):
+                preview = install_preview(vault, vault.active_profiles())
+                skill_md = root / "my-skills" / "one" / "SKILL.md"
+                skill_md.write_text(skill_md.read_text(encoding="utf-8") + "\nChanged.\n", encoding="utf-8")
+                with self.assertRaises(ServiceError) as caught:
+                    install_apply(vault, preview["preview_token"])
+            self.assertEqual(caught.exception.code, "stale_preview")
+
     def test_ui_install_always_creates_backup(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "vault"
             home = Path(directory) / "home"
             vault = self.make_vault(root)
-            save_managed_selection(vault, {"my/one": "both"})
-            preview = install_preview(vault, vault.active_profiles())
+            save_managed_selection(vault, {"my/one": "all"})
             with patch("pathlib.Path.home", return_value=home):
+                preview = install_preview(vault, vault.active_profiles())
                 result = install_apply(vault, preview["preview_token"])
             self.assertTrue((vault.state_dir / "backups" / result["backup_id"] / "manifest.json").exists())
             state = json.loads((vault.state_dir / "install-state.json").read_text())
-            self.assertEqual({item["platform"] for item in state["links"]}, {"codex", "claude"})
+            self.assertEqual({item["platform"] for item in state["links"]}, {"codex", "claude", "lux"})
+            lux_md = home / ".lux" / "skills" / "duplicate.md"
+            self.assertTrue(lux_md.is_file())
+            self.assertTrue((home / ".lux" / "skills" / "duplicate" / "SKILL.md").is_file())
+            self.assertEqual(vault.resolve_profile_details(vault.active_profiles(), "lux")["status"]["my/one"]["state"], "installed")
+            lux_md.unlink()
+            self.assertEqual(vault.resolve_profile_details(vault.active_profiles(), "lux")["status"]["my/one"]["state"], "drifted")
 
 
 class SkillDeletionTests(unittest.TestCase):
@@ -681,8 +749,8 @@ class SourcePolicyTests(unittest.TestCase):
             with patch("pathlib.Path.home", return_value=home):
                 source_policy_apply(vault, enable["preview_token"])
             self.assertTrue(vault.source_rows()[0]["enabled"])
-            self.assertTrue((home / ".agents" / "skills" / "demo").is_symlink())
-            self.assertTrue((home / ".claude" / "skills" / "demo").is_symlink())
+            self.assertTrue((home / ".agents" / "skills" / "demo" / "SKILL.md").is_file())
+            self.assertTrue((home / ".claude" / "skills" / "demo" / "SKILL.md").is_file())
 
     def test_personal_source_cannot_use_repository_switch(self):
         with tempfile.TemporaryDirectory() as directory:

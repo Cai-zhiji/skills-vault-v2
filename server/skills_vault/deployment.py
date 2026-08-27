@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import shutil
 import tempfile
 from pathlib import Path
@@ -34,6 +35,8 @@ def legacy_links(deployments: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
             "target": row["target"],
             "skill_id": row["skill_id"],
             "platform": row["platform"],
+            "name": row.get("name"),
+            "component": row.get("component"),
             "deployment_type": row.get("deployment_type", "symlink"),
             "source_fingerprint": row.get("source_fingerprint"),
             "deployed_fingerprint": row.get("deployed_fingerprint"),
@@ -42,42 +45,54 @@ def legacy_links(deployments: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
     ]
 
 
+def path_fingerprint(path: Path) -> str:
+    if not path.exists():
+        return "missing"
+    if path.is_file():
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+    return tree_fingerprint(path)
+
+
 def deployment_fingerprint(path: Path, deployment_type: str) -> str:
-    if deployment_type == "symlink":
+    if deployment_type in {"symlink", "symlink-file"}:
         if not path.is_symlink():
             return "missing"
-        return tree_fingerprint(path.resolve())
-    return tree_fingerprint(path)
+        return path_fingerprint(path.resolve())
+    return path_fingerprint(path)
 
 
 def deployment_is_current(row: Dict[str, Any]) -> bool:
     destination = Path(row["path"])
     target = Path(row["target"])
     kind = row.get("deployment_type", "symlink")
-    if kind == "symlink":
+    if kind in {"symlink", "symlink-file"}:
         return destination.is_symlink() and destination.resolve() == target.resolve()
-    if kind == "managed-copy":
+    if kind in {"managed-copy", "managed-copy-file"}:
         expected = row.get("deployed_fingerprint") or row.get("source_fingerprint")
-        return destination.is_dir() and bool(expected) and tree_fingerprint(destination) == expected
+        expected_kind = destination.is_file() if kind == "managed-copy-file" else destination.is_dir()
+        return expected_kind and bool(expected) and path_fingerprint(destination) == expected
     return False
 
 
 def remove_deployment(row: Dict[str, Any], *, allow_modified_copy: bool = False) -> bool:
     destination = Path(row["path"])
     kind = row.get("deployment_type", "symlink")
-    if kind == "symlink":
+    if kind in {"symlink", "symlink-file"}:
         if not destination.is_symlink() or destination.resolve() != Path(row["target"]).resolve():
             return False
         destination.unlink()
         return True
-    if kind == "managed-copy":
+    if kind in {"managed-copy", "managed-copy-file"}:
         if not destination.exists():
             return False
         expected = row.get("deployed_fingerprint") or row.get("source_fingerprint")
-        current = tree_fingerprint(destination)
+        current = path_fingerprint(destination)
         if not allow_modified_copy and (not expected or current != expected):
             raise VaultError(f"Managed copy has user changes and will not be removed: {destination}")
-        shutil.rmtree(destination)
+        if destination.is_dir():
+            shutil.rmtree(destination)
+        else:
+            destination.unlink()
         return True
     raise VaultError(f"Unsupported deployment type: {kind}")
 
@@ -86,9 +101,19 @@ def apply_deployment(operation: Dict[str, Any], managed: Dict[str, Any] | None =
     destination = Path(operation["path"])
     target = Path(operation["target"])
     kind = operation.get("deployment_type", "symlink")
-    if not target.is_dir():
+    allowed_parent = operation.get("allowed_parent")
+    if allowed_parent and destination.parent.resolve() != Path(allowed_parent).resolve():
+        raise VaultError(f"Skill deployment destination escapes the managed root: {destination}")
+    allowed_source_roots = [Path(root).resolve() for root in operation.get("allowed_source_roots", [])]
+    resolved_target = target.resolve()
+    if allowed_source_roots and not any(
+        resolved_target == root or root in resolved_target.parents for root in allowed_source_roots
+    ):
+        raise VaultError(f"Skill deployment source escapes the Vault: {target}")
+    expects_file = kind in {"symlink-file", "managed-copy-file"}
+    if (expects_file and not target.is_file()) or (not expects_file and not target.is_dir()):
         raise VaultError(f"Skill deployment source is missing: {target}")
-    source_fingerprint = tree_fingerprint(target)
+    source_fingerprint = path_fingerprint(target)
 
     if managed and deployment_is_current(managed):
         same_target = Path(managed["target"]).resolve() == target.resolve()
@@ -104,8 +129,8 @@ def apply_deployment(operation: Dict[str, Any], managed: Dict[str, Any] | None =
         remove_deployment(managed)
 
     destination.parent.mkdir(parents=True, exist_ok=True)
-    if kind == "symlink":
-        destination.symlink_to(target, target_is_directory=True)
+    if kind in {"symlink", "symlink-file"}:
+        destination.symlink_to(target, target_is_directory=kind == "symlink")
         deployed_fingerprint = source_fingerprint
     elif kind == "managed-copy":
         temporary_root = Path(tempfile.mkdtemp(prefix=f".{destination.name}.", dir=str(destination.parent)))
@@ -115,7 +140,18 @@ def apply_deployment(operation: Dict[str, Any], managed: Dict[str, Any] | None =
             temporary.replace(destination)
         finally:
             shutil.rmtree(temporary_root, ignore_errors=True)
-        deployed_fingerprint = tree_fingerprint(destination)
+        deployed_fingerprint = path_fingerprint(destination)
+    elif kind == "managed-copy-file":
+        with tempfile.NamedTemporaryFile(
+            prefix=f".{destination.name}.", dir=destination.parent, delete=False
+        ) as handle:
+            temporary = Path(handle.name)
+        try:
+            shutil.copy2(target, temporary)
+            temporary.replace(destination)
+        finally:
+            temporary.unlink(missing_ok=True)
+        deployed_fingerprint = path_fingerprint(destination)
     else:
         raise VaultError(f"Unsupported deployment type: {kind}")
 
@@ -124,6 +160,8 @@ def apply_deployment(operation: Dict[str, Any], managed: Dict[str, Any] | None =
         "target": str(target),
         "skill_id": operation["skill_id"],
         "platform": operation["platform"],
+        "name": operation.get("name"),
+        "component": operation.get("component"),
         "deployment_type": kind,
         "source_fingerprint": source_fingerprint,
         "deployed_fingerprint": deployed_fingerprint,

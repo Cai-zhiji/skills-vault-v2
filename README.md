@@ -54,10 +54,10 @@ PyInstaller 不能跨操作系统构建，因此 macOS `.app/.dmg`、Windows NSI
 
 ## 主要能力
 
-- **Skills**：浏览、搜索、按来源和状态筛选，创建原创 Skill，保存 Codex / Claude Code 启用范围，并通过 Preview 安全部署。
+- **Skills**：浏览、搜索、按来源和状态筛选，创建原创 Skill，保存 Codex / Claude Code / Lux Desktop 启用范围，并通过 Preview 安全部署。
 - **来源**：管理 Git、Skills CLI 与本地复制来源；缺少外部环境时展示影响和安装入口。
 - **记录**：追踪事务、更新报告和备份，并在恢复前生成一次性 Preview。
-- **跨平台部署**：macOS/Linux 默认受管链接，Windows 默认受管复制；目标被用户修改时阻止覆盖或删除。
+- **跨平台部署**：支持 Codex、Claude Code 与 Lux Desktop；macOS/Linux 默认受管链接，Windows 默认受管复制，目标被用户修改时阻止覆盖或删除。
 - **桌面安全**：sidecar 使用随机端口、进程内会话令牌、严格 Origin 和父进程生命周期绑定。
 
 ## 数据与安全边界

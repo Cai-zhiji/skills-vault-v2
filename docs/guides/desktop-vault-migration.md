@@ -29,7 +29,7 @@ Git 是可选能力。没有 Git 时，原创、编辑、扫描、部署和备�
 
 迁移会复制 `registry.yaml`、`lock.yaml`、`profiles/`、`annotations/`、`my-skills/`、说明文档和 `sources/`，并把可解释的旧事务、备份和更新报告归档为 legacy history。活动 Catalog、端口/PID、日志、Preview token 和旧平台安装状态不会直接复制。
 
-旧 Web 项目始终保持不变，可作为回滚副本。迁移完成后，需要在桌面应用中重新生成一次平台部署 Preview，再确认把 Codex / Claude Code 的受管目标指向新 Vault。
+旧 Web 项目始终保持不变，可作为回滚副本。迁移完成后，需要在桌面应用中重新生成一次平台部署 Preview，再确认把 Codex / Claude Code / Lux Desktop 的受管目标指向新 Vault。
 
 ## 失败与恢复
 

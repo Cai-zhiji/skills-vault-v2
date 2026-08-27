@@ -8,6 +8,9 @@ from pathlib import Path
 from typing import Dict, Optional
 
 
+SUPPORTED_PLATFORMS = ("codex", "claude", "lux")
+
+
 @dataclass(frozen=True)
 class PlatformAdapter:
     """Centralizes operating-system paths and capabilities used by the domain layer."""
@@ -42,16 +45,22 @@ class PlatformAdapter:
     def default_deployment_type(self) -> str:
         return "managed-copy" if self.is_windows else "symlink"
 
+    @property
+    def file_deployment_type(self) -> str:
+        return "managed-copy-file" if self.is_windows else "symlink-file"
+
     def agent_skill_dirs(self) -> Dict[str, Path]:
         return {
             "codex": self.home / ".agents" / "skills",
             "claude": self.home / ".claude" / "skills",
+            "lux": self.home / ".lux" / "skills",
         }
 
     def backup_targets(self) -> Dict[str, Path]:
         return {
             "agents-skills": self.home / ".agents" / "skills",
             "claude-skills": self.home / ".claude" / "skills",
+            "lux-skills": self.home / ".lux" / "skills",
             "claude-commands": self.home / ".claude" / "commands",
             "codex-skills-user": self.home / ".codex" / "skills",
         }

@@ -1,5 +1,27 @@
 import type { SelectionMode } from "@/types/api"
 
+export const modePlatforms: Record<SelectionMode, string[]> = {
+  off: [],
+  both: ["codex", "claude"],
+  all: ["codex", "claude", "lux"],
+  codex: ["codex"],
+  claude: ["claude"],
+  lux: ["lux"],
+  "codex-lux": ["codex", "lux"],
+  "claude-lux": ["claude", "lux"],
+}
+
+const modeOrder: SelectionMode[] = [
+  "off",
+  "all",
+  "both",
+  "codex-lux",
+  "claude-lux",
+  "codex",
+  "claude",
+  "lux",
+]
+
 export function selectionKey(value: Record<string, SelectionMode>): string {
   return JSON.stringify(
     Object.entries(value)
@@ -10,9 +32,7 @@ export function selectionKey(value: Record<string, SelectionMode>): string {
 
 export function availableModes(platforms: string[]): SelectionMode[] {
   const supported = new Set(platforms)
-  const modes: SelectionMode[] = ["off"]
-  if (supported.has("codex") && supported.has("claude")) modes.push("both")
-  if (supported.has("codex")) modes.push("codex")
-  if (supported.has("claude")) modes.push("claude")
-  return modes
+  return modeOrder.filter((mode) =>
+    modePlatforms[mode].every((platform) => supported.has(platform)),
+  )
 }

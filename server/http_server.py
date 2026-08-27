@@ -515,7 +515,7 @@ class Handler(BaseHTTPRequestHandler):
             return {}
         entry = dict(matches[0])
         enablement = {}
-        for platform in ("codex", "claude"):
+        for platform in ("codex", "claude", "lux"):
             try:
                 details = self.vault.resolve_profile_details(self.vault.active_profiles(), platform)
                 enablement[platform] = details["status"].get(skill_id, {"selected": False, "installed": False, "state": "not-selected", "reasons": []})

@@ -431,7 +431,7 @@ def cmd_ui(vault: Vault, args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="vault", description="Manage shared Codex and Claude Code skills")
+    parser = argparse.ArgumentParser(prog="vault", description="Manage shared Codex, Claude Code, and Lux Desktop skills")
     parser.add_argument("--root", type=Path, default=default_root(), help="Skills Vault root")
     sub = parser.add_subparsers(dest="command", required=True)
 

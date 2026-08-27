@@ -12,6 +12,21 @@ import tempfile
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
+from .platform_adapter import SUPPORTED_PLATFORMS
+
+
+CATALOG_SCHEMA_VERSION = 2
+SKILL_NAME_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")
+WINDOWS_RESERVED_NAMES = {
+    "con", "prn", "aux", "nul",
+    *(f"com{index}" for index in range(1, 10)),
+    *(f"lpt{index}" for index in range(1, 10)),
+}
+
+
+def valid_skill_name(name: str) -> bool:
+    return bool(SKILL_NAME_RE.fullmatch(name)) and name.lower() not in WINDOWS_RESERVED_NAMES
+
 
 class VaultError(RuntimeError):
     pass
@@ -251,7 +266,7 @@ def compatibility(skill_dir: Path, text: str, annotation: Dict[str, Any]) -> Dic
         signals.append("Claude Code frontmatter extension")
     if (skill_dir / "agents" / "openai.yaml").exists():
         signals.append("Codex metadata present")
-    return {"level": level, "platforms": ["codex", "claude"], "notes": signals}
+    return {"level": level, "platforms": list(SUPPORTED_PLATFORMS), "notes": signals}
 
 
 class Vault:
@@ -391,6 +406,8 @@ class Vault:
             text = skill_md.read_text(encoding="utf-8", errors="replace")
             metadata, _ = parse_frontmatter(text)
             name = str(metadata.get("name") or skill_dir.name).strip()
+            if not valid_skill_name(name):
+                continue
             entry_id = f"{source_id}/{name}"
             annotation = annotations.get(entry_id, {})
             modified_at = (
@@ -435,6 +452,7 @@ class Vault:
                         else "implicit-or-explicit",
                         "codex": f"${name}",
                         "claude": f"/{name}",
+                        "lux": f"/skill load {name}",
                     },
                 }
             )
@@ -448,6 +466,8 @@ class Vault:
             text = skill_md.read_text(encoding="utf-8", errors="replace")
             metadata, _ = parse_frontmatter(text)
             name = str(metadata.get("name") or skill_dir.name).strip()
+            if not valid_skill_name(name):
+                continue
             entry_id = f"my/{name}"
             annotation = annotations.get(entry_id, {})
             origin = load_data(skill_dir / ".vault-origin.json", {})
@@ -485,6 +505,7 @@ class Vault:
                         else "implicit-or-explicit",
                         "codex": f"${name}",
                         "claude": f"/{name}",
+                        "lux": f"/skill load {name}",
                     },
                     "origin": origin or None,
                 }
@@ -528,7 +549,7 @@ class Vault:
             json.dumps(fingerprint_payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
         ).hexdigest()
         return {
-            "schema_version": 1,
+            "schema_version": CATALOG_SCHEMA_VERSION,
             "generated_at": now_iso(),
             "fingerprint": fingerprint,
             "counts": {
@@ -587,7 +608,10 @@ class Vault:
         path = self.root / "catalog" / "catalog.json"
         if refresh or not path.exists():
             return self.scan()
-        return load_data(path)
+        catalog = load_data(path)
+        if catalog.get("schema_version", 0) < CATALOG_SCHEMA_VERSION:
+            return self.scan()
+        return catalog
 
     def profile_files(self) -> Dict[str, Path]:
         return {path.stem: path for path in sorted((self.root / "profiles").glob("*.yaml"))}
@@ -624,7 +648,12 @@ class Vault:
                 raise VaultError(f"Unknown profile: {name}")
             profile = load_data(files[name])
             restricted = profile.get("platform")
+            restricted_platforms = profile.get("platforms")
+            if not restricted and not restricted_platforms:
+                restricted_platforms = ["codex", "claude"]
             if restricted and restricted != platform:
+                continue
+            if restricted_platforms and platform not in restricted_platforms:
                 continue
             direct.update(profile.get("include", []))
             selected.update(profile.get("include", []))
@@ -700,18 +729,73 @@ class Vault:
         installed = install_state.get("deployments", install_state.get("links", []))
 
         def installed_platform(item: Dict[str, Any]) -> Optional[str]:
-            if item.get("platform") in ("codex", "claude"):
+            if item.get("platform") in SUPPORTED_PLATFORMS:
                 return item["platform"]
             parts = tuple(part.lower() for part in Path(str(item.get("path", ""))).parts)
             if any(parts[index : index + 2] == (".agents", "skills") for index in range(max(0, len(parts) - 1))):
                 return "codex"
             if any(parts[index : index + 2] == (".claude", "skills") for index in range(max(0, len(parts) - 1))):
                 return "claude"
+            if any(parts[index : index + 2] == (".lux", "skills") for index in range(max(0, len(parts) - 1))):
+                return "lux"
             return None
 
-        installed_ids = {
-            item.get("skill_id") for item in installed if installed_platform(item) == platform
-        }
+        def deployment_current(item: Dict[str, Any]) -> bool:
+            destination = Path(str(item.get("path", "")))
+            target = Path(str(item.get("target", "")))
+            kind = item.get("deployment_type", "symlink")
+            if kind in {"symlink", "symlink-file"}:
+                return destination.is_symlink() and destination.resolve() == target.resolve()
+            if kind not in {"managed-copy", "managed-copy-file"}:
+                return False
+            expected = item.get("deployed_fingerprint") or item.get("source_fingerprint")
+            source_expected = item.get("source_fingerprint")
+            if not expected or not source_expected:
+                return False
+            source_current = (
+                hashlib.sha256(target.read_bytes()).hexdigest()
+                if target.is_file()
+                else tree_fingerprint(target)
+            )
+            if source_current != source_expected:
+                return False
+            if kind == "managed-copy-file":
+                return destination.is_file() and hashlib.sha256(destination.read_bytes()).hexdigest() == expected
+            return destination.is_dir() and tree_fingerprint(destination) == expected
+
+        platform_deployments: Dict[str, List[Dict[str, Any]]] = {}
+        for item in installed:
+            if installed_platform(item) == platform and item.get("skill_id"):
+                platform_deployments.setdefault(item["skill_id"], []).append(item)
+
+        installed_ids: Set[str] = set()
+        drifted_ids: Set[str] = set()
+        for entry in entries:
+            rows = platform_deployments.get(entry["id"], [])
+            if platform != "lux":
+                if rows and all(deployment_current(row) for row in rows):
+                    installed_ids.add(entry["id"])
+                elif rows:
+                    drifted_ids.add(entry["id"])
+                continue
+            source = self.root / entry["path"]
+            required = {"resources", "skill"}
+            if (source / "SKILL.json").is_file() or (source / f"{entry['name']}.json").is_file():
+                required.add("watcher")
+            components: Dict[str, Dict[str, Any]] = {}
+            for row in rows:
+                component = row.get("component")
+                if not component:
+                    suffix = Path(str(row.get("path", ""))).suffix.lower()
+                    component = "skill" if suffix == ".md" else "watcher" if suffix == ".json" else "resources"
+                components[component] = row
+            if required.issubset(components) and all(
+                deployment_current(components[component]) for component in required
+            ):
+                installed_ids.add(entry["id"])
+            elif rows:
+                drifted_ids.add(entry["id"])
+
         by_name: Dict[str, List[str]] = {}
         for entry in entries:
             by_name.setdefault(entry["name"].lower(), []).append(entry["id"])
@@ -726,7 +810,7 @@ class Vault:
                 "compatible": compatible,
                 "installed": entry_id in installed_ids,
                 "reasons": reasons.get(entry_id, []),
-                "state": "source-disabled" if source_disabled else "blocked-dependency" if entry_id in blocked else "installed" if compatible and entry_id in installed_ids else "saved-not-installed" if compatible else "incompatible",
+                "state": "source-disabled" if source_disabled else "blocked-dependency" if entry_id in blocked else "installed" if compatible and entry_id in installed_ids else "drifted" if entry_id in drifted_ids else "saved-not-installed" if compatible else "incompatible",
             }
         return {"entries": entries, "notes": notes, "status": status, "direct": sorted(direct), "conflicts": conflicts}
 
@@ -760,7 +844,7 @@ class Vault:
         return result
 
     def derive(self, source_skill_id: str, new_name: str) -> Path:
-        if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,63}", new_name):
+        if not valid_skill_name(new_name):
             raise VaultError("Derived skill name must use lowercase letters, digits, and hyphens")
         catalog = self.catalog(refresh=True)
         matches = [entry for entry in catalog["skills"] if entry["id"] == source_skill_id]

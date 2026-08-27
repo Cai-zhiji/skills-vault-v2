@@ -51,7 +51,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { api } from "@/lib/api"
 import { truncate } from "@/lib/format"
 import { useOperation } from "@/lib/operation-context"
-import { selectionKey } from "@/lib/selection"
+import { availableModes, modePlatforms, selectionKey } from "@/lib/selection"
 import { cn } from "@/lib/utils"
 import type {
   ApplyResponse,
@@ -69,9 +69,13 @@ import type {
 
 const modeLabels: Record<SelectionMode, string> = {
   off: "关闭",
-  both: "两端启用",
+  all: "全部平台",
+  both: "Codex + Claude",
+  "codex-lux": "Codex + Lux",
+  "claude-lux": "Claude + Lux",
   codex: "仅 Codex",
   claude: "仅 Claude",
+  lux: "仅 Lux",
 }
 
 export function SkillsPage() {
@@ -172,14 +176,15 @@ export function SkillsPage() {
     [selectedSkillIds, skillsQuery.data?.skills],
   )
   const bulkModeSupport = useMemo(
-    () => ({
-      both: selectedSkills.length > 0 && selectedSkills.every((skill) => {
-        const platforms = new Set(skill.compatibility.platforms)
-        return platforms.has("codex") && platforms.has("claude")
-      }),
-      codex: selectedSkills.length > 0 && selectedSkills.every((skill) => skill.compatibility.platforms.includes("codex")),
-      claude: selectedSkills.length > 0 && selectedSkills.every((skill) => skill.compatibility.platforms.includes("claude")),
-    }),
+    () => Object.fromEntries(
+      (Object.keys(modePlatforms) as SelectionMode[]).map((mode) => [
+        mode,
+        selectedSkills.length > 0 && selectedSkills.every((skill) => {
+          const platforms = new Set(skill.compatibility.platforms)
+          return modePlatforms[mode].every((platform) => platforms.has(platform))
+        }),
+      ]),
+    ) as Record<SelectionMode, boolean>,
     [selectedSkills],
   )
   const allFilteredSelected = filteredSkillIds.length > 0 && filteredSkillIds.every((id) => selectedSkillIds.has(id))
@@ -238,13 +243,13 @@ export function SkillsPage() {
     const result = await runOperation(
       "install.preview",
       "生成安装 Preview",
-      "比较选择与 Codex / Claude Code 的实际链接",
+      "比较选择与 Codex / Claude Code / Lux Desktop 的实际部署",
       () =>
         api.post<InstallPreview>("/api/install/preview", {
           profiles: selectionQuery.data?.active_profiles || [],
         }),
       (value) =>
-        `Preview：新增 ${value.changes.added.length}、移除 ${value.changes.removed.length}、替换 ${value.changes.changed.length}`,
+        `Preview：新增 ${value.changes.added.length}、移除 ${value.changes.removed.length}、替换 ${value.changes.changed.length}、阻塞 ${value.blocked.length}`,
     )
     if (result) setInstallPreview(result)
   }
@@ -571,7 +576,7 @@ export function SkillsPage() {
                     >
                       <SelectTrigger
                         className={cn(
-                          "w-[132px]",
+                          "w-[150px]",
                           mode !== "off" && "selection-active",
                         )}
                         aria-label={`设置 ${skill.name} 启用范围`}
@@ -579,16 +584,11 @@ export function SkillsPage() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="off">{modeLabels.off}</SelectItem>
-                        {platforms.has("codex") && platforms.has("claude") && (
-                          <SelectItem value="both">{modeLabels.both}</SelectItem>
-                        )}
-                        {platforms.has("codex") && (
-                          <SelectItem value="codex">{modeLabels.codex}</SelectItem>
-                        )}
-                        {platforms.has("claude") && (
-                          <SelectItem value="claude">{modeLabels.claude}</SelectItem>
-                        )}
+                        {availableModes([...platforms]).map((availableMode) => (
+                          <SelectItem key={availableMode} value={availableMode}>
+                            {modeLabels[availableMode]}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                     <Button
@@ -633,10 +633,11 @@ export function SkillsPage() {
                 <SelectValue placeholder="批量设置范围" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="off">全部关闭</SelectItem>
-                <SelectItem value="both" disabled={!bulkModeSupport.both}>两端启用</SelectItem>
-                <SelectItem value="codex" disabled={!bulkModeSupport.codex}>仅 Codex</SelectItem>
-                <SelectItem value="claude" disabled={!bulkModeSupport.claude}>仅 Claude</SelectItem>
+                {(Object.keys(modeLabels) as SelectionMode[]).map((mode) => (
+                  <SelectItem key={mode} value={mode} disabled={!bulkModeSupport[mode]}>
+                    {mode === "off" ? "全部关闭" : modeLabels[mode]}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
             <Button variant="outline" onClick={() => void previewDelete(selectedSkills)}>
@@ -778,11 +779,20 @@ export function SkillsPage() {
               <div><strong>{installPreview.changes.removed.length}</strong><span>移除</span></div>
               <div><strong>{installPreview.changes.changed.length}</strong><span>替换</span></div>
               <div><strong>{installPreview.changes.kept.length}</strong><span>保留</span></div>
+              <div><strong>{installPreview.blocked.length}</strong><span>阻塞</span></div>
             </div>
           )}
+          {installPreview?.blocked.length ? (
+            <p className="text-xs leading-5 text-destructive">
+              受管目标已被用户修改。请先备份或移走对应目标，再重新生成 Preview。
+            </p>
+          ) : null}
           <AlertDialogFooter>
             <AlertDialogCancel>取消</AlertDialogCancel>
-            <AlertDialogAction onClick={() => void applyInstall()}>
+            <AlertDialogAction
+              disabled={Boolean(installPreview?.blocked.length)}
+              onClick={() => void applyInstall()}
+            >
               应用同步
             </AlertDialogAction>
           </AlertDialogFooter>
