@@ -9,6 +9,7 @@
 - [x] 完成 React 工作台、Python 本地 API、Catalog、来源、Profile、批量管理、说明文档、事务和恢复等 Web v2 基础能力。
 - [x] 完成跨平台路径与平台适配层，覆盖 macOS、Windows、Linux 的应用目录和 Agent Skills 目标目录。
 - [x] 完成 symlink / managed-copy 部署器和安装状态 schema v2；Windows 默认受管复制，用户修改目标时阻止覆盖或删除。
+- [x] 平台目标扩展到 Codex、Claude Code 与 Lux Desktop；Lux 的 Markdown 入口、资源目录和可选 watcher 配置分别纳管，并保持旧 `both` 选择语义。
 - [x] 完成空 Vault 初始化、候选目录识别、普通 Skills 文件夹导入和 Web v2 复制迁移，写操作均使用 Preview / Apply。
 - [x] 完成原创 Skill 创建预览，并把前端创建流程切换到一次性 Preview token。
 - [x] 完成 Git、Node/npm/npx 与 Skills CLI 可选依赖检测、受控安装计划和依赖中心界面。
@@ -17,7 +18,7 @@
 - [x] sidecar 已实现随机回环端口、进程内会话令牌、严格 Origin、父进程监测和优雅关闭；源码模式和 PyInstaller 冻结模式均通过烟测。
 - [x] 建立根目录 `npm run dev`、`dev:web`、`test:all`、`package:diagnose` 与 `package` 跨平台入口。
 - [x] PyInstaller 6.22.2 已在当前 Apple Silicon Mac 成功生成并启动 sidecar。
-- [x] 当前全量验证通过：前端类型、Lint、2 项单测与生产构建；后端 57 项测试通过，其中 8 项真实数据集成测试按约定跳过。
+- [x] 当前全量验证通过：前端类型、Lint、2 项单测与生产构建；后端 73 项测试通过，其中 8 项真实数据集成测试按约定跳过；Tauri Rust 1 项测试通过。
 - [x] 当前 Apple Silicon Mac 已安装 Rust/Cargo 1.98.0，Tauri Rust 壳编译与 1 项 Rust 单测通过。
 - [x] 已生成 macOS arm64 `.app/.dmg`，完成应用与 DMG 内签名结构、架构、SHA-256、实际启动及退出回收验收。
 - [ ] macOS 完整业务安装验收、Windows NSIS 与 Ubuntu AppImage 实体验收尚未完成。

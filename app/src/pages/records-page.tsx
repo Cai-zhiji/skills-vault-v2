@@ -240,7 +240,7 @@ export function RecordsPage() {
           <AlertDialogHeader>
             <AlertDialogTitle className="font-label text-2xl">恢复平台备份</AlertDialogTitle>
             <AlertDialogDescription>
-              将恢复备份 `{restorePreview?.backup_id}`。这会改变 Codex / Claude Code 的受管链接，但不会删除 Vault 中的 Skill 文件。
+              将恢复备份 `{restorePreview?.backup_id}`。这会改变 Codex / Claude Code / Lux Desktop 的受管部署，但不会删除 Vault 中的 Skill 文件。
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

@@ -20,16 +20,19 @@ from .core import (
     parse_frontmatter,
     run,
     tree_fingerprint,
+    valid_skill_name,
     write_data,
 )
 from .deployment import (
     apply_deployment,
+    deployment_fingerprint,
     deployment_is_current,
     legacy_links,
+    path_fingerprint,
     remove_deployment,
     state_deployments,
 )
-from .platform_adapter import PlatformAdapter, current_platform
+from .platform_adapter import PlatformAdapter, SUPPORTED_PLATFORMS, current_platform
 from .executable_resolver import environment_for, resolve_executable
 from .skills_cli import update as update_skills_cli_source
 
@@ -47,11 +50,22 @@ def _discovered_vault_deployments(
 
     platform_adapter = adapter or current_platform()
     catalog = load_data(vault.root / "catalog" / "catalog.json", {"skills": []})
-    targets = {
-        (vault.root / entry["path"]).resolve(): entry
-        for entry in catalog.get("skills", [])
-        if entry.get("path") and (vault.root / entry["path"]).is_dir()
-    }
+    targets: Dict[Path, Dict[str, Any]] = {}
+    for entry in catalog.get("skills", []):
+        if not entry.get("path"):
+            continue
+        skill_root = (vault.root / entry["path"]).resolve()
+        if skill_root.is_dir():
+            targets[skill_root] = entry
+        skill_md = skill_root / "SKILL.md"
+        if skill_md.is_file():
+            targets[skill_md.resolve()] = entry
+        watcher = skill_root / "SKILL.json"
+        named_watcher = skill_root / f"{entry.get('name', '')}.json"
+        if watcher.is_file():
+            targets[watcher.resolve()] = entry
+        elif named_watcher.is_file():
+            targets[named_watcher.resolve()] = entry
     discovered: List[Dict[str, Any]] = []
     for platform_name, directory in platform_adapter.agent_skill_dirs().items():
         if not directory.is_dir():
@@ -60,6 +74,8 @@ def _discovered_vault_deployments(
             if not destination.is_symlink():
                 continue
             target = destination.resolve(strict=False)
+            if platform_name != "lux" and target.is_file():
+                continue
             entry = targets.get(target)
             if not entry:
                 try:
@@ -76,7 +92,7 @@ def _discovered_vault_deployments(
                         "target": str(target),
                         "skill_id": f"vault/{relative_target.as_posix()}",
                         "platform": platform_name,
-                        "deployment_type": "symlink",
+                        "deployment_type": "symlink-file" if destination.suffix in {".md", ".json"} else "symlink",
                         "source_fingerprint": "missing",
                         "deployed_fingerprint": "missing",
                     }
@@ -88,9 +104,9 @@ def _discovered_vault_deployments(
                     "target": str(target),
                     "skill_id": entry["id"],
                     "platform": platform_name,
-                    "deployment_type": "symlink",
-                    "source_fingerprint": tree_fingerprint(target),
-                    "deployed_fingerprint": tree_fingerprint(target),
+                    "deployment_type": "symlink-file" if target.is_file() else "symlink",
+                    "source_fingerprint": deployment_fingerprint(destination, "symlink-file" if target.is_file() else "symlink"),
+                    "deployed_fingerprint": deployment_fingerprint(destination, "symlink-file" if target.is_file() else "symlink"),
                 }
             )
     return discovered
@@ -108,6 +124,19 @@ def _known_deployments(
     for row in _discovered_vault_deployments(vault, adapter):
         by_path.setdefault(row["path"], row)
     return list(by_path.values())
+
+
+def _deployment_in_managed_bounds(
+    vault: Vault,
+    row: Dict[str, Any],
+    adapter: PlatformAdapter,
+) -> bool:
+    platform = row.get("platform")
+    roots = adapter.agent_skill_dirs()
+    if platform not in roots or not row.get("path") or not row.get("target"):
+        return False
+    destination = Path(str(row["path"]))
+    return destination.parent.resolve() == roots[platform].resolve()
 
 
 def confirm(question: str, assume_yes: bool = False) -> bool:
@@ -491,7 +520,7 @@ def _profile_reference_errors(vault: Vault, catalog: Dict[str, Any]) -> List[str
         for source_id in profile.get("include_source", []):
             if source_id not in vault.registry["sources"]:
                 errors.append(f"Profile {name} refers to missing source {source_id}")
-    for platform in ("codex", "claude"):
+    for platform in SUPPORTED_PLATFORMS:
         for name in vault.profile_files():
             try:
                 vault.resolve_profile([name], platform)
@@ -714,7 +743,16 @@ def create_backup(vault: Vault, adapter: Optional[PlatformAdapter] = None) -> Pa
     backup.mkdir(parents=True, exist_ok=False)
     platform = adapter or current_platform()
     targets = platform.backup_targets()
-    manifest: Dict[str, Any] = {"schema_version": 1, "created_at": now_iso(), "targets": {}}
+    install_state = load_data(vault.state_dir / "install-state.json", {"links": []})
+    deployments = _known_deployments(vault, install_state, platform)
+    if any(not _deployment_in_managed_bounds(vault, row, platform) for row in deployments):
+        raise VaultError("Install state contains a deployment outside managed platform roots")
+    manifest: Dict[str, Any] = {
+        "schema_version": 1,
+        "created_at": now_iso(),
+        "targets": {},
+        "deployments": deployments,
+    }
     for label, target in targets.items():
         manifest["targets"][label] = {"path": str(target), "existed": target.exists()}
         if not target.exists():
@@ -746,6 +784,160 @@ def _reset_user_skill_dirs(adapter: Optional[PlatformAdapter] = None) -> None:
             _remove_path(child)
 
 
+def _validate_lux_watcher(
+    watcher_path: Path,
+    payload: Any,
+    skill_name: str,
+    skill_root: Path,
+) -> None:
+    if not isinstance(payload, dict) or set(payload) - {"version", "skill", "watchers"}:
+        raise VaultError(f"Lux watcher has an invalid schema: {watcher_path}")
+    watchers = payload.get("watchers")
+    if payload.get("version") != 1 or payload.get("skill") != skill_name or not isinstance(watchers, list):
+        raise VaultError(f"Lux watcher has an invalid schema: {watcher_path}")
+
+    allowed_fields = {
+        "id", "name", "enabled", "promptRef", "triggers", "cooldownTurns",
+        "cooldownMs", "maxRunsPerSession", "maxInjectsPerSession",
+        "recentCanvasBlocks", "recentToolCalls",
+    }
+    numeric_fields = {
+        "cooldownTurns", "cooldownMs", "maxRunsPerSession", "maxInjectsPerSession",
+        "recentCanvasBlocks", "recentToolCalls",
+    }
+    trigger_fields = {
+        "user_message_contains": {"type", "keywords", "caseSensitive"},
+        "after_tool_call": {"type", "tools"},
+        "on_idle": {"type"},
+    }
+    seen_ids = set()
+    for watcher in watchers:
+        if not isinstance(watcher, dict) or set(watcher) - allowed_fields:
+            raise VaultError(f"Lux watcher entry has an invalid schema: {watcher_path}")
+        watcher_id = watcher.get("id")
+        prompt_ref = watcher.get("promptRef")
+        triggers = watcher.get("triggers")
+        if (
+            not isinstance(watcher_id, str)
+            or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", watcher_id)
+            or watcher_id in seen_ids
+            or not isinstance(watcher.get("name"), str)
+            or not watcher["name"].strip()
+            or not isinstance(watcher.get("enabled"), bool)
+            or not isinstance(prompt_ref, str)
+            or Path(prompt_ref).name != prompt_ref
+            or Path(prompt_ref).suffix.lower() not in {".md", ".txt"}
+            or not isinstance(triggers, list)
+            or not triggers
+        ):
+            raise VaultError(f"Lux watcher entry has an invalid schema: {watcher_path}")
+        seen_ids.add(watcher_id)
+        for field in numeric_fields:
+            value = watcher.get(field)
+            if value is not None and (isinstance(value, bool) or not isinstance(value, int) or value < 0):
+                raise VaultError(f"Lux watcher entry has an invalid schema: {watcher_path}")
+        prompt_path = skill_root / prompt_ref
+        if (
+            prompt_path.is_symlink()
+            or not prompt_path.is_file()
+            or prompt_path.resolve().parent != skill_root
+            or prompt_path.stat().st_size > 16 * 1024
+        ):
+            raise VaultError(f"Lux watcher prompt is invalid: {prompt_path}")
+        for trigger in triggers:
+            if not isinstance(trigger, dict) or trigger.get("type") not in trigger_fields:
+                raise VaultError(f"Lux watcher trigger has an invalid schema: {watcher_path}")
+            trigger_type = trigger["type"]
+            if set(trigger) - trigger_fields[trigger_type]:
+                raise VaultError(f"Lux watcher trigger has an invalid schema: {watcher_path}")
+            if trigger_type == "user_message_contains":
+                keywords = trigger.get("keywords")
+                if (
+                    not isinstance(keywords, list)
+                    or not keywords
+                    or not all(isinstance(item, str) and item for item in keywords)
+                    or ("caseSensitive" in trigger and not isinstance(trigger["caseSensitive"], bool))
+                ):
+                    raise VaultError(f"Lux watcher trigger has an invalid schema: {watcher_path}")
+            elif trigger_type == "after_tool_call":
+                tools = trigger.get("tools")
+                if not isinstance(tools, list) or not tools or not all(isinstance(item, str) and item for item in tools):
+                    raise VaultError(f"Lux watcher trigger has an invalid schema: {watcher_path}")
+
+
+def _platform_install_operations(
+    vault: Vault,
+    adapter: PlatformAdapter,
+    platform: str,
+    destination: Path,
+    entry: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+    if not valid_skill_name(str(entry.get("name", ""))):
+        raise VaultError(f"Invalid Skill name for deployment: {entry.get('name', '')}")
+    source = (vault.root / entry["path"]).resolve()
+    allowed_sources = ((vault.root / "my-skills").resolve(), (vault.root / "sources").resolve())
+    if not any(source == root or root in source.parents for root in allowed_sources):
+        raise VaultError(f"Skill deployment source escapes the Vault: {source}")
+    base = {
+        "platform": platform,
+        "skill_id": entry["id"],
+        "name": entry["name"],
+        "allowed_parent": str(destination.resolve()),
+        "allowed_source_roots": [str(root) for root in allowed_sources],
+    }
+    if platform != "lux":
+        return [
+            {
+                **base,
+                "path": str(destination / entry["name"]),
+                "target": str(source),
+                "deployment_type": adapter.default_deployment_type,
+                "source_fingerprint": path_fingerprint(source),
+            }
+        ]
+
+    operations = [
+        {
+            **base,
+            "component": "resources",
+            "path": str(destination / entry["name"]),
+            "target": str(source),
+            "deployment_type": adapter.default_deployment_type,
+            "source_fingerprint": path_fingerprint(source),
+        },
+        {
+            **base,
+            "component": "skill",
+            "path": str(destination / f"{entry['name']}.md"),
+            "target": str(source / "SKILL.md"),
+            "deployment_type": adapter.file_deployment_type,
+            "source_fingerprint": path_fingerprint(source / "SKILL.md"),
+        },
+    ]
+    watcher = source / "SKILL.json"
+    named_watcher = source / f"{entry['name']}.json"
+    watcher_source = watcher if watcher.is_file() else named_watcher
+    if watcher_source.is_file():
+        if watcher_source.is_symlink() or watcher_source.resolve().parent != source:
+            raise VaultError(f"Lux watcher must be a regular file inside the Skill: {watcher_source}")
+        try:
+            watcher_payload = json.loads(watcher_source.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise VaultError(f"Lux watcher is not valid JSON: {watcher_source}") from exc
+        _validate_lux_watcher(watcher_source, watcher_payload, entry["name"], source)
+        operations.append(
+            {
+                **base,
+                "component": "watcher",
+                "path": str(destination / f"{entry['name']}.json"),
+                "target": str(watcher_source),
+                "deployment_type": adapter.file_deployment_type,
+                "source_fingerprint": path_fingerprint(watcher_source),
+            }
+        )
+    return operations
+
+
 def install_plan(
     vault: Vault,
     profiles: Sequence[str],
@@ -759,43 +951,64 @@ def install_plan(
         entries, platform_notes = vault.resolve_profile(profiles, platform)
         notes.extend(f"{platform}: {note}" for note in platform_notes)
         for entry in entries:
-            operations.append(
-                {
-                    "platform": platform,
-                    "skill_id": entry["id"],
-                    "name": entry["name"],
-                    "path": str(destination / entry["name"]),
-                    "target": str((vault.root / entry["path"]).resolve()),
-                    "deployment_type": platform_adapter.default_deployment_type,
-                }
+            operations.extend(
+                _platform_install_operations(vault, platform_adapter, platform, destination, entry)
             )
     current = _known_deployments(
         vault,
         load_data(vault.state_dir / "install-state.json", {"links": []}),
         platform_adapter,
     )
-    current_by_path = {item.get("path"): item for item in current}
+    current_by_path = {str(item["path"]): item for item in current if item.get("path")}
     desired_by_path = {item["path"]: item for item in operations}
-    added = [item for path, item in desired_by_path.items() if path not in current_by_path]
-    removed = [item for path, item in current_by_path.items() if path not in desired_by_path]
+
+    blocked = []
+    blocked_paths = set()
+    for path, desired in desired_by_path.items():
+        destination = Path(path)
+        if path not in current_by_path and (destination.exists() or destination.is_symlink()):
+            blocked.append({**desired, "reason": "destination-unmanaged"})
+            blocked_paths.add(path)
+    for path, row in current_by_path.items():
+        destination = Path(str(path))
+        if (destination.exists() or destination.is_symlink()) and not deployment_is_current(row):
+            desired = desired_by_path.get(path, row)
+            blocked.append({**desired, "reason": "destination-modified", "current": row})
+            blocked_paths.add(path)
+
+    added = [
+        item for path, item in desired_by_path.items()
+        if path not in current_by_path and path not in blocked_paths
+    ]
+    removed = [
+        item for path, item in current_by_path.items()
+        if path not in desired_by_path and path not in blocked_paths
+    ]
     changed = [
         item for path, item in desired_by_path.items()
         if path in current_by_path
+        and path not in blocked_paths
         and (
-            current_by_path[path].get("target") != item.get("target")
+            not deployment_is_current(current_by_path[path])
+            or current_by_path[path].get("target") != item.get("target")
             or current_by_path[path].get("deployment_type", "symlink") != item.get("deployment_type")
+            or current_by_path[path].get("source_fingerprint") != item.get("source_fingerprint")
         )
     ]
     kept = [
         item for path, item in desired_by_path.items()
         if path in current_by_path
+        and path not in blocked_paths
+        and deployment_is_current(current_by_path[path])
         and current_by_path[path].get("target") == item.get("target")
         and current_by_path[path].get("deployment_type", "symlink") == item.get("deployment_type")
+        and current_by_path[path].get("source_fingerprint") == item.get("source_fingerprint")
     ]
     return {
         "profiles": list(profiles),
         "operations": operations,
         "notes": notes,
+        "blocked": blocked,
         "changes": {"added": added, "removed": removed, "changed": changed, "kept": kept},
     }
 
@@ -813,13 +1026,18 @@ def install(
     plan = install_plan(vault, profiles, platform_adapter)
     if dry_run:
         return plan
+    if plan.get("blocked"):
+        paths = ", ".join(str(item.get("path")) for item in plan["blocked"])
+        raise VaultError(f"Install is blocked by modified managed destinations: {paths}")
     if reset and not confirm(
-        "Back up and rebuild user-level Codex/Claude skills and Claude commands?", assume_yes
+        "Back up and rebuild user-level Codex, Claude Code, and Lux skills plus Claude commands?", assume_yes
     ):
         raise VaultError("Install cancelled")
-    backup = backup_path
+    backup = backup_path or create_backup(vault, platform_adapter)
     old_state = load_data(vault.state_dir / "install-state.json", {"links": []})
     old_deployments = _known_deployments(vault, old_state, platform_adapter)
+    if any(not _deployment_in_managed_bounds(vault, row, platform_adapter) for row in old_deployments):
+        raise VaultError("Install state contains a deployment outside managed platform roots")
     managed_by_path = {
         str(item.get("path")): item
         for item in old_deployments
@@ -829,7 +1047,6 @@ def install(
     newly_created: List[Dict[str, Any]] = []
     try:
         if reset:
-            backup = backup or create_backup(vault, platform_adapter)
             _reset_user_skill_dirs(platform_adapter)
         desired_paths = {operation["path"] for operation in plan["operations"]}
         for current in old_deployments:
@@ -851,7 +1068,7 @@ def install(
             except Exception:
                 pass
         if backup:
-            _restore_backup_path(vault, backup)
+            _restore_backup_path(vault, backup, platform_adapter)
         raise
     state = {
         "schema_version": 2,
@@ -870,7 +1087,10 @@ def install(
 def uninstall(vault: Vault, assume_yes: bool = False) -> int:
     state_path = vault.state_dir / "install-state.json"
     state = load_data(state_path, {"links": []})
-    deployments = _known_deployments(vault, state)
+    platform = current_platform()
+    deployments = _known_deployments(vault, state, platform)
+    if any(not _deployment_in_managed_bounds(vault, row, platform) for row in deployments):
+        raise VaultError("Install state contains a deployment outside managed platform roots")
     if not deployments:
         return 0
     if not confirm(f"Remove {len(deployments)} Skills Vault-managed deployments?", assume_yes):
@@ -883,15 +1103,72 @@ def uninstall(vault: Vault, assume_yes: bool = False) -> int:
     return removed
 
 
-def restore_backup(vault: Vault, backup_id: str, assume_yes: bool = False) -> Path:
-    backup = vault.state_dir / "backups" / backup_id
+def validated_backup_path(vault: Vault, backup_id: str) -> Path:
+    if (
+        not backup_id
+        or Path(backup_id).name != backup_id
+        or "/" in backup_id
+        or "\\" in backup_id
+        or backup_id in {".", ".."}
+    ):
+        raise VaultError("Backup ID is invalid")
+    root = (vault.state_dir / "backups").resolve()
+    backup = (root / backup_id).resolve()
+    if backup.parent != root:
+        raise VaultError("Backup path escapes the Vault")
+    return backup
+
+
+def _validated_backup_manifest(
+    vault: Vault,
+    backup: Path,
+    platform: PlatformAdapter,
+) -> Dict[str, Any]:
+    manifest = load_data(backup / "manifest.json")
+    if manifest.get("schema_version") != 1:
+        raise VaultError("Backup manifest schema is unsupported")
+    allowed_targets = platform.backup_targets()
+    manifest_targets = manifest.get("targets")
+    if not isinstance(manifest_targets, dict) or not set(manifest_targets).issubset(allowed_targets):
+        raise VaultError("Backup manifest contains unsupported targets")
+    for label, info in manifest_targets.items():
+        if not isinstance(info, dict) or not isinstance(info.get("existed"), bool):
+            raise VaultError(f"Backup manifest target is invalid: {label}")
+        if info["existed"] and not (backup / label).is_dir():
+            raise VaultError(f"Backup payload is missing: {label}")
+    deployments = manifest.get("deployments", [])
+    if not isinstance(deployments, list) or any(
+        not isinstance(row, dict) or not _deployment_in_managed_bounds(vault, row, platform)
+        for row in deployments
+    ):
+        raise VaultError("Backup manifest contains an unsafe deployment")
+    return manifest
+
+
+def restore_backup(
+    vault: Vault,
+    backup_id: str,
+    assume_yes: bool = False,
+    adapter: Optional[PlatformAdapter] = None,
+) -> Path:
+    platform = adapter or current_platform()
+    backup = validated_backup_path(vault, backup_id)
     manifest_path = backup / "manifest.json"
-    if not manifest_path.exists():
+    if not manifest_path.is_file():
         raise VaultError(f"Backup not found: {backup_id}")
+    manifest = _validated_backup_manifest(vault, backup, platform)
     if not confirm(f"Replace current user-level skill directories with backup {backup_id}?", assume_yes):
         raise VaultError("Restore cancelled")
-    _restore_backup_path(vault, backup)
-    deployments = _discovered_vault_deployments(vault)
+    _restore_backup_path(vault, backup, platform, manifest)
+    manifest_deployments = manifest.get("deployments", [])
+    deployments_by_path = {
+        row["path"]: row
+        for row in manifest_deployments
+        if row.get("path") and deployment_is_current(row)
+    }
+    for row in _discovered_vault_deployments(vault, platform):
+        deployments_by_path.setdefault(row["path"], row)
+    deployments = list(deployments_by_path.values())
     write_data(
         vault.state_dir / "install-state.json",
         {
@@ -905,12 +1182,20 @@ def restore_backup(vault: Vault, backup_id: str, assume_yes: bool = False) -> Pa
     return backup
 
 
-def _restore_backup_path(vault: Vault, backup: Path) -> None:
-    manifest = load_data(backup / "manifest.json")
-    for label, info in manifest["targets"].items():
-        target = Path(info["path"])
-        if not info.get("existed") and target.exists():
-            _remove_path(target)
+def _restore_backup_path(
+    vault: Vault,
+    backup: Path,
+    adapter: Optional[PlatformAdapter] = None,
+    manifest: Optional[Dict[str, Any]] = None,
+) -> None:
+    platform = adapter or current_platform()
+    validated = manifest or _validated_backup_manifest(vault, backup, platform)
+    allowed_targets = platform.backup_targets()
+    for label, info in validated["targets"].items():
+        target = allowed_targets[label]
+        if not info.get("existed"):
+            if target.exists():
+                _remove_path(target)
             continue
         target.mkdir(parents=True, exist_ok=True)
         for child in list(target.iterdir()):

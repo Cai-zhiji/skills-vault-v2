@@ -23,9 +23,10 @@ from .core import (
     parse_frontmatter,
     run,
     tree_fingerprint,
+    valid_skill_name,
     write_data,
 )
-from .deployment import legacy_links, remove_deployment, state_deployments
+from .deployment import deployment_fingerprint, legacy_links, path_fingerprint, remove_deployment, state_deployments
 from .dependencies import (
     dependency_install_plan,
     dependency_status,
@@ -41,8 +42,16 @@ from .migrations import (
     vault_create_plan,
     web_v2_migration_plan,
 )
-from .ops import apply_updates, create_backup, install, install_plan, restore_backup, update_plan
-from .platform_adapter import current_platform
+from .ops import (
+    apply_updates,
+    create_backup,
+    install,
+    install_plan,
+    restore_backup,
+    update_plan,
+    validated_backup_path,
+)
+from .platform_adapter import SUPPORTED_PLATFORMS, current_platform
 from .source_input import canonical_source_ref, disambiguate_source_id, parse_source_input
 from .skills_cli import add_to_existing as add_skills_cli_source
 from .skills_cli import discover as discover_skills_cli_source
@@ -50,7 +59,18 @@ from .skills_cli import install as install_skills_cli_source
 from .skills_cli import installed_skills as installed_skills_cli_source
 
 
-MANAGED_PROFILES = ("ui-shared", "ui-codex", "ui-claude")
+MANAGED_PROFILES = ("ui-shared", "ui-codex", "ui-claude", "ui-lux")
+MODE_PLATFORMS = {
+    "off": frozenset(),
+    "both": frozenset({"codex", "claude"}),
+    "all": frozenset(SUPPORTED_PLATFORMS),
+    "codex": frozenset({"codex"}),
+    "claude": frozenset({"claude"}),
+    "lux": frozenset({"lux"}),
+    "codex-lux": frozenset({"codex", "lux"}),
+    "claude-lux": frozenset({"claude", "lux"}),
+}
+PLATFORMS_MODE = {platforms: mode for mode, platforms in MODE_PLATFORMS.items()}
 
 
 class ServiceError(VaultError):
@@ -110,7 +130,18 @@ def _state_fingerprint(vault: Vault) -> str:
     for path in files:
         digest.update(str(path).encode())
         digest.update(path.read_bytes() if path.exists() else b"missing")
-    digest.update(vault.catalog().get("fingerprint", "").encode())
+    catalog = vault.catalog()
+    digest.update(catalog.get("fingerprint", "").encode())
+    for entry in catalog.get("skills", []):
+        source = vault.root / str(entry.get("path", ""))
+        digest.update(str(source).encode())
+        digest.update(path_fingerprint(source).encode())
+    install_state = load_data(vault.state_dir / "install-state.json", {"links": []})
+    for row in sorted(state_deployments(install_state), key=lambda item: str(item.get("path", ""))):
+        destination = Path(str(row.get("path", "")))
+        kind = str(row.get("deployment_type", "symlink"))
+        digest.update(str(destination).encode())
+        digest.update(deployment_fingerprint(destination, kind).encode())
     return digest.hexdigest()
 
 
@@ -826,7 +857,7 @@ def source_policy_preview(vault: Vault, source_id: str, enabled: bool) -> Dict[s
     source_ids = {entry["id"] for entry in source_skills}
     active_profiles = vault.active_profiles()
     platform_rows: Dict[str, Dict[str, Any]] = {}
-    for platform in ("codex", "claude"):
+    for platform in SUPPORTED_PLATFORMS:
         details = vault.resolve_profile_details(active_profiles, platform)
         direct = [entry_id for entry_id in details["direct"] if entry_id in source_ids]
         effective = [entry["id"] for entry in details["entries"] if entry["id"] in source_ids]
@@ -849,7 +880,7 @@ def source_policy_preview(vault: Vault, source_id: str, enabled: bool) -> Dict[s
         "notes": [
             "不会删除第三方仓库、Skill 文件、说明文档或 Profile 中的原始选择。",
             "关闭后，来源策略会在 Profile 解析之前统一过滤该仓库的 Skills。",
-            "应用时会先备份，再同步 Codex 与 Claude Code 的受管链接。",
+            "应用时会先备份，再同步 Codex、Claude Code 与 Lux Desktop 的受管部署。",
         ],
     }
     plan["preview_token"] = _issue_token(vault, "source.policy", {"plan": plan})
@@ -1425,7 +1456,14 @@ def install_preview(vault: Vault, profiles: Sequence[str]) -> Dict[str, Any]:
 def install_apply(vault: Vault, token: str, reset: bool = False) -> Dict[str, Any]:
     payload = _consume_token(vault, token, "install")
     profiles = payload.get("profiles", [])
-    tx = payload.get("plan", {}).get("transaction_id") or transaction_id("install")
+    preview_plan = payload.get("plan", {})
+    tx = preview_plan.get("transaction_id") or transaction_id("install")
+    if preview_plan.get("blocked"):
+        raise ServiceError(
+            "install_blocked",
+            "平台目标包含用户修改，拒绝覆盖或删除",
+            {"blocked": preview_plan["blocked"]},
+        )
     backup = create_backup(vault)
     try:
         result = install(
@@ -1473,9 +1511,9 @@ def install_apply(vault: Vault, token: str, reset: bool = False) -> Dict[str, An
 
 def managed_selection_payload(vault: Vault) -> Dict[str, Any]:
     active = vault.active_profiles()
-    selections: Dict[str, str] = {}
+    selected_platforms: Dict[str, set[str]] = {}
     resolved: Dict[str, Dict[str, Any]] = {}
-    for platform in ("codex", "claude"):
+    for platform in SUPPORTED_PLATFORMS:
         details = vault.resolve_profile_details(active, platform)
         resolved[platform] = {
             "direct": details["direct"],
@@ -1483,11 +1521,11 @@ def managed_selection_payload(vault: Vault) -> Dict[str, Any]:
             "notes": details["notes"],
         }
         for skill_id in details["direct"]:
-            previous = selections.get(skill_id)
-            if previous and previous != platform:
-                selections[skill_id] = "both"
-            else:
-                selections[skill_id] = platform
+            selected_platforms.setdefault(skill_id, set()).add(platform)
+    selections = {
+        skill_id: PLATFORMS_MODE[frozenset(platforms)]
+        for skill_id, platforms in selected_platforms.items()
+    }
     return {
         "active_profiles": active,
         "managed": all(name in MANAGED_PROFILES for name in active),
@@ -1502,7 +1540,7 @@ def save_managed_selection(vault: Vault, selections: Dict[str, Any]) -> Dict[str
         raise ServiceError("invalid_selection", "Skills selection must be an object")
     catalog = vault.catalog()
     by_id = {entry["id"]: entry for entry in catalog.get("skills", [])}
-    allowed_modes = {"off", "both", "codex", "claude"}
+    allowed_modes = set(MODE_PLATFORMS)
     selected_by_name: Dict[str, List[str]] = {}
     normalized: Dict[str, str] = {}
     for skill_id, raw_mode in selections.items():
@@ -1514,7 +1552,7 @@ def save_managed_selection(vault: Vault, selections: Dict[str, Any]) -> Dict[str
         if mode == "off":
             continue
         platforms = set(by_id[skill_id].get("compatibility", {}).get("platforms", []))
-        requested = {"codex", "claude"} if mode == "both" else {mode}
+        requested = set(MODE_PLATFORMS[mode])
         if not requested.issubset(platforms):
             raise ServiceError(
                 "incompatible_platform",
@@ -1555,27 +1593,41 @@ def save_managed_selection(vault: Vault, selections: Dict[str, Any]) -> Dict[str
         )
 
     shared = sorted(skill_id for skill_id, mode in normalized.items() if mode == "both")
-    codex = sorted(skill_id for skill_id, mode in normalized.items() if mode == "codex")
-    claude = sorted(skill_id for skill_id, mode in normalized.items() if mode == "claude")
+    platform_selections = {
+        platform: sorted(
+            skill_id
+            for skill_id, mode in normalized.items()
+            if platform in MODE_PLATFORMS[mode] and mode != "both"
+        )
+        for platform in SUPPORTED_PLATFORMS
+    }
     profile_rows = {
         "ui-shared": {
             "schema_version": 1,
             "description": "UI-managed skills shared by Codex and Claude Code.",
+            "platforms": ["codex", "claude"],
             "include": shared,
             "classification": ["published"],
         },
         "ui-codex": {
             "schema_version": 1,
-            "description": "UI-managed Codex-only skills.",
+            "description": "UI-managed Codex skills.",
             "platform": "codex",
-            "include": codex,
+            "include": platform_selections["codex"],
             "classification": ["published"],
         },
         "ui-claude": {
             "schema_version": 1,
-            "description": "UI-managed Claude-only skills.",
+            "description": "UI-managed Claude Code skills.",
             "platform": "claude",
-            "include": claude,
+            "include": platform_selections["claude"],
+            "classification": ["published"],
+        },
+        "ui-lux": {
+            "schema_version": 1,
+            "description": "UI-managed Lux Desktop skills.",
+            "platform": "lux",
+            "include": platform_selections["lux"],
             "classification": ["published"],
         },
     }
@@ -1590,7 +1642,10 @@ def save_managed_selection(vault: Vault, selections: Dict[str, Any]) -> Dict[str
             "operation": "selection.save",
             "status": "saved-not-installed",
             "profiles": list(MANAGED_PROFILES),
-            "counts": {"both": len(shared), "codex": len(codex), "claude": len(claude)},
+            "counts": {
+                mode: sum(1 for selected_mode in normalized.values() if selected_mode == mode)
+                for mode in MODE_PLATFORMS
+            },
         },
     )
     result = managed_selection_payload(vault)
@@ -1603,7 +1658,7 @@ def profiles_payload(vault: Vault) -> Dict[str, Any]:
     for name, path in vault.profile_files().items():
         profile = load_data(path)
         platform = profile.get("platform")
-        platforms = [platform] if platform else ["codex", "claude"]
+        platforms = [platform] if platform else profile.get("platforms", list(SUPPORTED_PLATFORMS))
         resolved = {p: vault.resolve_profile_details([name], p) for p in platforms}
         profiles.append({"name": name, "description": profile.get("description", ""), "platform": platform,
                         "include": profile.get("include", []), "include_source": profile.get("include_source", []),
@@ -1616,12 +1671,23 @@ def profiles_payload(vault: Vault) -> Dict[str, Any]:
 def save_profile(vault: Vault, name: str, data: Dict[str, Any]) -> Dict[str, Any]:
     if not name or "/" in name or ".." in name:
         raise ServiceError("invalid_profile", "Profile name is invalid")
+    platform = data.get("platform")
+    platforms = data.get("platforms")
+    if platform and platforms:
+        raise ServiceError("invalid_profile", "Profile cannot define both platform and platforms")
+    if platform and platform not in SUPPORTED_PLATFORMS:
+        raise ServiceError("invalid_profile", f"Unsupported platform: {platform}")
+    if platforms is not None:
+        if not isinstance(platforms, list) or not platforms or not set(platforms).issubset(SUPPORTED_PLATFORMS):
+            raise ServiceError("invalid_profile", "Profile platforms contain unsupported values")
     payload = {"schema_version": 1, "description": str(data.get("description", "")),
                "include": list(dict.fromkeys(data.get("include", []))),
                "include_source": list(dict.fromkeys(data.get("include_source", []))),
                "classification": data.get("classification", ["published"])}
-    if data.get("platform"):
-        payload["platform"] = data["platform"]
+    if platform:
+        payload["platform"] = platform
+    if platforms:
+        payload["platforms"] = list(dict.fromkeys(platforms))
     write_data(vault.root / "profiles" / f"{name}.yaml", payload)
     vault.scan()
     tx = transaction_id("profile")
@@ -1805,7 +1871,11 @@ def list_backups(vault: Vault) -> List[Dict[str, Any]]:
 
 
 def restore_preview(vault: Vault, backup_id: str) -> Dict[str, Any]:
-    if not (vault.state_dir / "backups" / backup_id).is_dir():
+    try:
+        backup = validated_backup_path(vault, backup_id)
+    except VaultError as exc:
+        raise ServiceError("invalid_backup", str(exc)) from exc
+    if not backup.is_dir() or not (backup / "manifest.json").is_file():
         raise ServiceError("not_found", "Backup not found")
     payload = {"backup_id": backup_id}
     return {"backup_id": backup_id, "preview_token": _issue_token(vault, "restore", payload), "transaction_id": transaction_id("restore")}
@@ -1833,7 +1903,7 @@ def save_annotation(vault: Vault, skill_id: str, values: Dict[str, Any]) -> Dict
 def create_original_preview(vault: Vault, name: str, description: str = "") -> Dict[str, Any]:
     normalized = str(name).strip()
     destination = vault.root / "my-skills" / normalized
-    if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,63}", normalized):
+    if not valid_skill_name(normalized):
         raise ServiceError("invalid_name", "Skill name must use lowercase letters, digits, and hyphens")
     if destination.exists():
         raise ServiceError("already_exists", f"Skill already exists: {normalized}")
@@ -1868,11 +1938,11 @@ def create_original(
     description: str = "",
     transaction_id_override: Optional[str] = None,
 ) -> Dict[str, Any]:
+    if not valid_skill_name(name):
+        raise ServiceError("invalid_name", "Skill name must use lowercase letters, digits, and hyphens and not be a reserved device name")
     destination = vault.root / "my-skills" / name
     if destination.exists():
         raise ServiceError("already_exists", f"Skill already exists: {name}")
-    if not name or not name.replace("-", "").isalnum() or name.lower() != name:
-        raise ServiceError("invalid_name", "Skill name must be lowercase letters, digits, and hyphens")
     destination.mkdir(parents=True)
     content = f"---\nname: {name}\ndescription: {description or 'Personal skill; review before enabling.'}\n---\n\n# {name}\n\nDescribe the workflow here.\n"
     (destination / "SKILL.md").write_text(content, encoding="utf-8")

@@ -14,8 +14,8 @@ Skills Vault v2 是一个本地优先的 Agent Skills 管理工作台。网站�
 | 来源（Source） | 提供一个或多个 Skills 的本地目录、Git 仓库或外部发现入口。 |
 | Catalog | 扫描来源与原创目录后生成的结构化 Skill 索引，是可重建视图而非唯一事实源。 |
 | Profile | 一组可组合的 Skill 选择，用于描述不同使用场景或平台的启用集合。 |
-| 平台 | Skill 的消费端；首期至少包括 Codex 与 Claude Code。 |
-| 选择状态 | 用户希望某个 Skill 在共享、Codex-only、Claude-only 或关闭范围内生效。 |
+| 平台 | Skill 的消费端；当前包括 Codex、Claude Code 与 Lux Desktop。 |
+| 选择状态 | 用户希望某个 Skill 在 Codex、Claude Code、Lux Desktop 的任意组合或关闭范围内生效；旧值 `both` 仍只表示 Codex + Claude Code。 |
 | 安装状态 | 当前用户级平台目录中的实际受管链接是否与选择状态一致。 |
 | 冲突 | 多个实现声明相同调用名称，导致同一平台无法同时启用。 |
 | 漂移 | 派生 Skill 的本地内容或其上游基线发生变化。 |
@@ -24,7 +24,7 @@ Skills Vault v2 是一个本地优先的 Agent Skills 管理工作台。网站�
 | 备份 | 在安装、恢复或破坏性操作之前保存的可恢复快照。 |
 | Vault 根目录 | 用户选择并自行保管的 Skills 事实数据目录；桌面应用资源与它分离，测试或诊断时可显式替换。 |
 | 桌面配置 | 位于平台标准应用配置目录，只记录最近 Vault、桌面设置和桌面操作记录，不拥有 Skill 事实数据。 |
-| 受管复制 | Windows 默认部署方式；复制 Skill 并保存源/目标指纹，目标被用户修改时阻止覆盖或删除。 |
+| 受管复制 | Windows 默认部署方式；复制 Skill 并保存源/目标指纹，目标被用户修改时阻止覆盖或删除。Lux 的 Markdown 入口文件与资源目录分别纳管。 |
 | sidecar | 由 Tauri 启停的本地 Python 服务；生产包内置运行时，不要求最终用户安装 Python。 |
 | 说明文档 | 位于 Vault 根目录 `docs/skill-guides/` 的独立 Markdown 指南；仅可为原创或派生 Skill 编辑，不改写上游 `SKILL.md`。 |
 
@@ -38,7 +38,7 @@ Skills Vault v2 是一个本地优先的 Agent Skills 管理工作台。网站�
 | 同步 | 让文件、Catalog、用户选择与平台实际安装状态回到一致。 |
 | 更新 | 获取并应用上游来源的新版本；不得覆盖来源中的本地改动。 |
 | 恢复 | 从备份还原受管状态，不触碰未纳管内容。 |
-| 同步轨 | 页面中的签名状态组件，展示“本地文件 → Catalog → Codex / Claude Code”的关系。 |
+| 同步轨 | 页面中的签名状态组件，展示“本地文件 → Catalog → Codex / Claude Code / Lux Desktop”的关系。 |
 | Operation Rail | 持续展示长耗时操作阶段、结果与错误的上下文区域；不是短暂 toast。 |
 | 标准说明模板 | 新建说明文档的八节结构：定位、何时使用、不适用、前置条件、标准流程、输出与验收、风险与边界、维护记录。 |
 

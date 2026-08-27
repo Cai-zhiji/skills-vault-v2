@@ -1,6 +1,10 @@
 {
   "schema_version": 1,
   "description": "Shared, reviewed daily-work skills for Codex and Claude Code.",
+  "platforms": [
+    "codex",
+    "claude"
+  ],
   "include": [
     "mattpocock/ask-matt",
     "mattpocock/code-review",

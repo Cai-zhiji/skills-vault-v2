@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import re
 import shutil
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
@@ -14,13 +13,13 @@ from .core import (
     now_iso,
     parse_frontmatter,
     tree_fingerprint,
+    valid_skill_name,
     write_data,
 )
 
 
 VAULT_SCHEMA_VERSION = 1
 APP_VERSION = "2.1.0"
-SKILL_NAME_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")
 
 
 def _safe_directory(path: str | Path) -> Path:
@@ -81,7 +80,7 @@ def inspect_candidate(path: str | Path) -> Dict[str, Any]:
             continue
         name = str(metadata.get("name") or skill_md.parent.name).strip()
         reasons = []
-        if not SKILL_NAME_RE.fullmatch(name):
+        if not valid_skill_name(name):
             reasons.append("名称必须使用小写字母、数字和连字符")
         if not str(metadata.get("description") or "").strip():
             reasons.append("缺少 description")
@@ -186,7 +185,10 @@ def create_vault(path: str | Path) -> Vault:
         write_data(root / "registry.yaml", {"schema_version": 1, "sources": {}})
         write_data(root / "lock.yaml", {"schema_version": 1, "sources": {}})
         write_data(root / "annotations" / "skills.yaml", {"schema_version": 1, "skills": {}})
-        write_data(root / "profiles" / "ui-shared.yaml", {"schema_version": 1, "include": []})
+        write_data(
+            root / "profiles" / "ui-shared.yaml",
+            {"schema_version": 1, "platforms": ["codex", "claude"], "include": []},
+        )
         write_data(
             root / "profiles" / "ui-codex.yaml",
             {"schema_version": 1, "platform": "codex", "include": []},
@@ -196,8 +198,12 @@ def create_vault(path: str | Path) -> Vault:
             {"schema_version": 1, "platform": "claude", "include": []},
         )
         write_data(
+            root / "profiles" / "ui-lux.yaml",
+            {"schema_version": 1, "platform": "lux", "include": []},
+        )
+        write_data(
             root / ".vault" / "active-profiles.json",
-            {"schema_version": 1, "profiles": ["ui-shared", "ui-codex", "ui-claude"]},
+            {"schema_version": 1, "profiles": ["ui-shared", "ui-codex", "ui-claude", "ui-lux"]},
         )
         vault = Vault(root)
         vault.scan()
@@ -250,7 +256,7 @@ def import_plan(
         ]
     else:
         normalized_id = str(source_id or "").strip().lower()
-        if not SKILL_NAME_RE.fullmatch(normalized_id):
+        if not valid_skill_name(normalized_id):
             raise VaultError("Source ID must use lowercase letters, digits, and hyphens")
         if normalized_id in vault.registry.get("sources", {}):
             conflicts.append(normalized_id)

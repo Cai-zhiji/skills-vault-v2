@@ -179,6 +179,7 @@ export function SkillDetailSheet({
                         <div className="flex flex-wrap gap-2">
                           <code>{skill.invocation.codex}</code>
                           <code>{skill.invocation.claude}</code>
+                          <code>{skill.invocation.lux}</code>
                         </div>
                       </DetailRow>
                       <DetailRow label="兼容平台">
@@ -196,6 +197,13 @@ export function SkillDetailSheet({
                           status={skill.enablement.claude.selected ? "safe" : "muted"}
                         >
                           {skill.enablement.claude.state}
+                        </StatusPill>
+                      </DetailRow>
+                      <DetailRow label="Lux Desktop">
+                        <StatusPill
+                          status={skill.enablement.lux.selected ? "safe" : "muted"}
+                        >
+                          {skill.enablement.lux.state}
                         </StatusPill>
                       </DetailRow>
                       <DetailRow label="分类">{skill.classification}</DetailRow>

@@ -35,6 +35,7 @@ export function SyncRail({
   const hasConflicts = status.catalog.conflict_groups > 0
   const codexCount = selection?.resolved.codex.effective.length || 0
   const claudeCount = selection?.resolved.claude.effective.length || 0
+  const luxCount = selection?.resolved.lux.effective.length || 0
   const nodes: SyncNode[] = [
     {
       id: "files",
@@ -66,6 +67,14 @@ export function SyncRail({
       id: "claude",
       label: "Claude Code",
       meta: `${claudeCount} 个应启用`,
+      status: "safe",
+      stateLabel: "已选择",
+      icon: Bot,
+    },
+    {
+      id: "lux",
+      label: "Lux Desktop",
+      meta: `${luxCount} 个应启用`,
       status: "safe",
       stateLabel: "已选择",
       icon: Bot,

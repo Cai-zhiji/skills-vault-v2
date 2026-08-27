@@ -1,4 +1,12 @@
-export type SelectionMode = "off" | "both" | "codex" | "claude"
+export type SelectionMode =
+  | "off"
+  | "both"
+  | "all"
+  | "codex"
+  | "claude"
+  | "lux"
+  | "codex-lux"
+  | "claude-lux"
 
 export interface CatalogState {
   fresh: boolean
@@ -130,6 +138,7 @@ export interface SkillEntry {
     mode: string
     codex: string
     claude: string
+    lux: string
   }
   origin?: Record<string, unknown> | null
 }
@@ -151,6 +160,7 @@ export interface SkillDetailPayload extends SkillEntry {
   enablement: {
     codex: EnablementState
     claude: EnablementState
+    lux: EnablementState
   }
   source: SourceRow | null
   origin_detail: Record<string, unknown> | null
@@ -280,6 +290,7 @@ export interface SelectionPayload {
   resolved: {
     codex: { direct: string[]; effective: string[]; notes: string[] }
     claude: { direct: string[]; effective: string[]; notes: string[] }
+    lux: { direct: string[]; effective: string[]; notes: string[] }
   }
   conflicts: Record<string, string[]>
 }
@@ -307,6 +318,7 @@ export interface InstallPreview {
   profiles: string[]
   operations: InstallChange[]
   notes: string[]
+  blocked: Array<InstallChange & { reason: string }>
   changes: {
     added: InstallChange[]
     removed: InstallChange[]
