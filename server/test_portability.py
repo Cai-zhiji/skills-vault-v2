@@ -12,7 +12,13 @@ from skills_vault.deployment import (
     state_deployments,
 )
 from skills_vault.platform_adapter import PlatformAdapter
-from skills_vault.ops import create_backup, install, install_plan, restore_backup
+from skills_vault.ops import (
+    create_backup,
+    current_state_deployments,
+    install,
+    install_plan,
+    restore_backup,
+)
 
 
 class PlatformAdapterTests(unittest.TestCase):
@@ -27,6 +33,20 @@ class PlatformAdapterTests(unittest.TestCase):
             self.assertEqual(windows.file_deployment_type, "managed-copy-file")
             self.assertEqual(linux.default_deployment_type, "symlink")
             self.assertEqual(linux.file_deployment_type, "symlink-file")
+
+    def test_managed_skill_path_check_is_lexical_and_platform_scoped(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory) / "home"
+            adapter = PlatformAdapter("windows", home, "amd64")
+            self.assertTrue(
+                adapter.manages_skill_path("lux", home / ".lux" / "skills" / "demo.md")
+            )
+            self.assertFalse(
+                adapter.manages_skill_path("lux", home / ".lux" / "outside" / "demo.md")
+            )
+            self.assertFalse(
+                adapter.manages_skill_path("unknown", home / ".lux" / "skills" / "demo.md")
+            )
 
     def test_desktop_paths_follow_platform_conventions(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -208,6 +228,152 @@ class DeploymentTests(unittest.TestCase):
             )
             with self.assertRaises(VaultError):
                 install_plan(vault, ["base"], adapter)
+
+    def test_install_ignores_and_preserves_foreign_legacy_state(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            root = base / "vault"
+            skill = root / "my-skills" / "demo"
+            skill.mkdir(parents=True)
+            (skill / "SKILL.md").write_text("---\nname: demo\ndescription: Demo.\n---\n")
+            (root / "profiles").mkdir()
+            (root / "annotations").mkdir()
+            write_data(root / "registry.yaml", {"schema_version": 1, "sources": {}})
+            write_data(root / "lock.yaml", {"schema_version": 1, "sources": {}})
+            write_data(root / "annotations" / "skills.yaml", {"schema_version": 1, "skills": {}})
+            write_data(
+                root / "profiles" / "lux.yaml",
+                {"schema_version": 1, "platform": "lux", "include": ["my/demo"]},
+            )
+            vault = Vault(root)
+            vault.scan()
+            foreign_state = {
+                "schema_version": 2,
+                "installed_at": "2026-08-26T09:13:07+08:00",
+                "deployments": [
+                    {
+                        "path": "/Users/previous/.agents/skills/demo",
+                        "target": "/Users/previous/Documents/Skills Vault/my-skills/demo",
+                        "skill_id": "my/demo",
+                        "platform": "codex",
+                        "deployment_type": "symlink",
+                    },
+                    {
+                        "path": "/Users/previous/.claude/skills/demo",
+                        "target": "/Users/previous/Documents/Skills Vault/my-skills/demo",
+                        "skill_id": "my/demo",
+                        "platform": "claude",
+                        "deployment_type": "symlink",
+                    },
+                ],
+            }
+            write_data(vault.state_dir / "install-state.json", foreign_state)
+            adapter = PlatformAdapter("windows", base / "home", "amd64")
+
+            result = install(vault, ["lux"], assume_yes=True, adapter=adapter)
+
+            backup = Path(result["backup"])
+            self.assertEqual(load_data(backup / "previous-install-state.json"), foreign_state)
+            state = load_data(vault.state_dir / "install-state.json")
+            self.assertEqual(state["installation"]["platform"], "windows")
+            self.assertEqual(state["installation"]["home"], str(adapter.home))
+            self.assertEqual(
+                state["installation"]["id"],
+                (adapter.home / ".skills-vault" / "installation-id").read_text(),
+            )
+            self.assertEqual({row["platform"] for row in state["deployments"]}, {"lux"})
+            self.assertTrue((adapter.agent_skill_dirs()["lux"] / "demo.md").is_file())
+
+    def test_same_home_state_from_another_machine_is_ignored(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            adapter = PlatformAdapter("windows", base / "home", "amd64")
+            identity = adapter.home / ".skills-vault" / "installation-id"
+            identity.parent.mkdir(parents=True)
+            identity.write_text("a" * 32)
+            state = {
+                "schema_version": 2,
+                "installation": {
+                    "platform": "windows",
+                    "home": str(adapter.home),
+                    "id": "f" * 32,
+                },
+                "deployments": [
+                    {
+                        "path": str(adapter.agent_skill_dirs()["codex"] / "demo"),
+                        "target": str(base / "vault" / "my-skills" / "demo"),
+                        "skill_id": "my/demo",
+                        "platform": "codex",
+                    }
+                ],
+            }
+
+            self.assertEqual(current_state_deployments(state, adapter), [])
+            self.assertNotEqual(
+                (adapter.home / ".skills-vault" / "installation-id").read_text(),
+                state["installation"]["id"],
+            )
+
+    def test_mixed_current_and_out_of_bounds_state_remains_blocked(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            root = base / "vault"
+            (root / ".vault").mkdir(parents=True)
+            adapter = PlatformAdapter("windows", base / "home", "amd64")
+            current = adapter.agent_skill_dirs()["codex"] / "demo"
+            write_data(
+                root / ".vault" / "install-state.json",
+                {
+                    "schema_version": 2,
+                    "installation": {
+                        "platform": "linux",
+                        "home": "/home/foreign",
+                        "id": "f" * 32,
+                    },
+                    "deployments": [
+                        {
+                            "path": str(current),
+                            "target": str(root / "my-skills" / "demo"),
+                            "skill_id": "my/demo",
+                            "platform": "codex",
+                        },
+                        {
+                            "path": str(base / "other-home" / ".agents" / "skills" / "escape"),
+                            "target": str(root / "my-skills" / "escape"),
+                            "skill_id": "my/escape",
+                            "platform": "codex",
+                        },
+                    ],
+                },
+            )
+            vault = Vault(root)
+
+            with self.assertRaisesRegex(VaultError, "metadata does not match"):
+                create_backup(vault, adapter)
+
+    def test_foreign_metadata_with_only_current_paths_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            adapter = PlatformAdapter("windows", base / "home", "amd64")
+            state = {
+                "schema_version": 2,
+                "installation": {
+                    "platform": "linux",
+                    "home": "/home/foreign",
+                    "id": "f" * 32,
+                },
+                "deployments": [
+                    {
+                        "path": str(adapter.agent_skill_dirs()["codex"] / "demo"),
+                        "target": str(base / "vault" / "my-skills" / "demo"),
+                        "skill_id": "my/demo",
+                        "platform": "codex",
+                    }
+                ],
+            }
+
+            with self.assertRaisesRegex(VaultError, "metadata does not match"):
+                current_state_deployments(state, adapter)
 
     def test_install_plan_blocks_unmanaged_lux_destination(self):
         with tempfile.TemporaryDirectory() as directory:
