@@ -56,6 +56,37 @@ class PlatformAdapter:
             "lux": self.home / ".lux" / "skills",
         }
 
+    def manages_skill_path(self, platform: object, value: object) -> bool:
+        root = self.agent_skill_dirs().get(str(platform))
+        if root is None or not value:
+            return False
+        destination_parent = os.path.normcase(os.path.abspath(str(Path(str(value)).parent)))
+        managed_root = os.path.normcase(os.path.abspath(str(root)))
+        return destination_parent == managed_root
+
+    def installation_matches(self, installation: object) -> bool:
+        if not isinstance(installation, dict):
+            return True
+        recorded_platform = installation.get("platform")
+        recorded_home = installation.get("home")
+        if recorded_platform and recorded_platform != self.platform_id:
+            return False
+        if recorded_home:
+            current_home = os.path.normcase(os.path.abspath(str(self.home)))
+            expected_home = os.path.normcase(os.path.abspath(str(recorded_home)))
+            if current_home != expected_home:
+                return False
+        recorded_id = installation.get("id")
+        if recorded_id:
+            identity_path = self.home / ".skills-vault" / "installation-id"
+            if identity_path.is_symlink() or not identity_path.is_file():
+                return False
+            try:
+                return identity_path.read_text(encoding="ascii").strip() == recorded_id
+            except (OSError, UnicodeError):
+                return False
+        return True
+
     def backup_targets(self) -> Dict[str, Path]:
         return {
             "agents-skills": self.home / ".agents" / "skills",

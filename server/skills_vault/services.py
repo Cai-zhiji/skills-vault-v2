@@ -6,6 +6,7 @@ import difflib
 import hashlib
 import ipaddress
 import json
+import os
 import re
 import secrets
 import shutil
@@ -26,7 +27,7 @@ from .core import (
     valid_skill_name,
     write_data,
 )
-from .deployment import deployment_fingerprint, legacy_links, path_fingerprint, remove_deployment, state_deployments
+from .deployment import deployment_fingerprint, legacy_links, path_fingerprint, remove_deployment
 from .dependencies import (
     dependency_install_plan,
     dependency_status,
@@ -45,8 +46,11 @@ from .migrations import (
 from .ops import (
     apply_updates,
     create_backup,
+    current_state_deployments,
+    deployment_in_managed_bounds,
     install,
     install_plan,
+    managed_current_state_deployments,
     restore_backup,
     update_plan,
     validated_backup_path,
@@ -81,20 +85,28 @@ class ServiceError(VaultError):
 
 
 def _remove_selected_deployments(
-    state: Dict[str, Any], selected: set[str]
+    vault: Vault, state: Dict[str, Any], selected: set[str]
 ) -> List[Dict[str, Any]]:
-    allowed_parents = {path.resolve() for path in current_platform().agent_skill_dirs().values()}
+    platform = current_platform()
+    deployments = current_state_deployments(state, platform)
+    unsafe = next(
+        (
+            item
+            for item in deployments
+            if not deployment_in_managed_bounds(vault, item, platform)
+        ),
+        None,
+    )
+    if unsafe:
+        raise ServiceError(
+            "unsafe_deployment_path",
+            f"拒绝移除管理范围之外的部署：{unsafe.get('path')}",
+        )
     retained: List[Dict[str, Any]] = []
-    for item in state_deployments(state):
+    for item in deployments:
         if item.get("skill_id") not in selected:
             retained.append(item)
             continue
-        destination = Path(str(item.get("path", "")))
-        if destination.parent.resolve() not in allowed_parents:
-            raise ServiceError(
-                "unsafe_deployment_path",
-                f"拒绝移除管理范围之外的部署：{destination}",
-            )
         remove_deployment(item)
     return retained
 
@@ -137,11 +149,14 @@ def _state_fingerprint(vault: Vault) -> str:
         digest.update(str(source).encode())
         digest.update(path_fingerprint(source).encode())
     install_state = load_data(vault.state_dir / "install-state.json", {"links": []})
-    for row in sorted(state_deployments(install_state), key=lambda item: str(item.get("path", ""))):
+    for row in sorted(managed_current_state_deployments(install_state), key=lambda item: str(item.get("path", ""))):
         destination = Path(str(row.get("path", "")))
         kind = str(row.get("deployment_type", "symlink"))
         digest.update(str(destination).encode())
-        digest.update(deployment_fingerprint(destination, kind).encode())
+        if kind in {"symlink", "symlink-file"} and destination.is_symlink():
+            digest.update(os.readlink(destination).encode())
+        else:
+            digest.update(deployment_fingerprint(destination, kind).encode())
     return digest.hexdigest()
 
 
@@ -864,7 +879,7 @@ def source_policy_preview(vault: Vault, source_id: str, enabled: bool) -> Dict[s
         platform_rows[platform] = {"selected": direct, "effective": effective}
 
     install_state = load_data(vault.state_dir / "install-state.json", {"links": []})
-    installed_links = [row for row in state_deployments(install_state) if row.get("skill_id") in source_ids]
+    installed_links = [row for row in managed_current_state_deployments(install_state) if row.get("skill_id") in source_ids]
     tx = transaction_id("source")
     plan = {
         "transaction_id": tx,
@@ -981,7 +996,7 @@ def source_delete_preview(vault: Vault, source_id: str) -> Dict[str, Any]:
                 }
             )
     install_state = load_data(vault.state_dir / "install-state.json", {"links": []})
-    links = [item for item in state_deployments(install_state) if item.get("skill_id") in selected]
+    links = [item for item in managed_current_state_deployments(install_state) if item.get("skill_id") in selected]
     annotations = vault.annotations.get("skills", {})
     annotation_ids = [skill_id for skill_id in skill_ids if skill_id in annotations]
     guides = [skill_id for skill_id in skill_ids if _guide_path(vault, skill_id).is_file()]
@@ -1113,7 +1128,7 @@ def source_delete_apply(vault: Vault, token: str) -> Dict[str, Any]:
 
         install_state_path = vault.state_dir / "install-state.json"
         install_state = load_data(install_state_path, {"schema_version": 1, "links": []})
-        retained_links = _remove_selected_deployments(install_state, skill_ids)
+        retained_links = _remove_selected_deployments(vault, install_state, skill_ids)
         install_state["updated_at"] = now_iso()
         install_state["last_source_delete_transaction"] = tx
         _write_deployment_state(install_state_path, install_state, retained_links)
@@ -1223,7 +1238,7 @@ def delete_skills_preview(vault: Vault, skill_ids: Sequence[str]) -> Dict[str, A
             reference_changes.append({"skill_id": owner_id, "fields": fields})
 
     install_state = load_data(vault.state_dir / "install-state.json", {"links": []})
-    links = [item for item in state_deployments(install_state) if item.get("skill_id") in selected]
+    links = [item for item in managed_current_state_deployments(install_state) if item.get("skill_id") in selected]
     derivatives = [
         entry["id"]
         for entry in catalog.get("skills", [])
@@ -1349,7 +1364,7 @@ def delete_skills_apply(vault: Vault, token: str) -> Dict[str, Any]:
 
         install_state_path = vault.state_dir / "install-state.json"
         install_state = load_data(install_state_path, {"schema_version": 1, "links": []})
-        retained_links = _remove_selected_deployments(install_state, selected)
+        retained_links = _remove_selected_deployments(vault, install_state, selected)
         install_state["updated_at"] = now_iso()
         install_state["last_delete_transaction"] = tx
         _write_deployment_state(install_state_path, install_state, retained_links)

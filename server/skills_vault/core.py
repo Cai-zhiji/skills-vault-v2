@@ -12,7 +12,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
-from .platform_adapter import SUPPORTED_PLATFORMS
+from .platform_adapter import SUPPORTED_PLATFORMS, current_platform
 
 
 CATALOG_SCHEMA_VERSION = 2
@@ -740,9 +740,32 @@ class Vault:
                 return "lux"
             return None
 
+        platform_adapter = current_platform()
+        if not platform_adapter.installation_matches(install_state.get("installation")):
+            installed = []
+        installed = [
+            item
+            for item in installed
+            if platform_adapter.manages_skill_path(installed_platform(item), item.get("path"))
+        ]
+
+        allowed_sources = (
+            (self.root / "my-skills").resolve(),
+            (self.root / "sources").resolve(),
+        )
+
         def deployment_current(item: Dict[str, Any]) -> bool:
             destination = Path(str(item.get("path", "")))
             target = Path(str(item.get("target", "")))
+            try:
+                resolved_target = target.resolve(strict=False)
+            except OSError:
+                return False
+            if not any(
+                resolved_target == root or root in resolved_target.parents
+                for root in allowed_sources
+            ):
+                return False
             kind = item.get("deployment_type", "symlink")
             if kind in {"symlink", "symlink-file"}:
                 return destination.is_symlink() and destination.resolve() == target.resolve()

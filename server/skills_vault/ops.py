@@ -3,10 +3,11 @@ from __future__ import annotations
 import json
 import os
 import re
+import secrets
 import shutil
 import subprocess
 import tempfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from .core import (
@@ -112,31 +113,132 @@ def _discovered_vault_deployments(
     return discovered
 
 
+def _normalized_home(value: Any) -> str:
+    raw = str(value)
+    normalized = raw.replace("\\", "/").rstrip("/")
+    return normalized.casefold() if PureWindowsPath(raw).is_absolute() else normalized
+
+
+def _deployment_home(row: Dict[str, Any]) -> Optional[str]:
+    value = str(row.get("path") or "")
+    platform = row.get("platform")
+    markers = {"codex": ".agents", "claude": ".claude", "lux": ".lux"}
+    marker = markers.get(platform)
+    if not value or not marker:
+        return None
+    windows_path = PureWindowsPath(value)
+    if windows_path.is_absolute():
+        destination = windows_path
+    else:
+        posix_path = PurePosixPath(value)
+        if not posix_path.is_absolute():
+            return None
+        destination = posix_path
+    skills_root = destination.parent
+    if skills_root.name != "skills" or skills_root.parent.name != marker:
+        return None
+    return _normalized_home(skills_root.parent.parent)
+
+
+def _local_installation_id(adapter: PlatformAdapter) -> str:
+    identity_root = adapter.home / ".skills-vault"
+    if identity_root.is_symlink():
+        raise VaultError(f"Installation identity directory must not be a symlink: {identity_root}")
+    identity_root.mkdir(parents=True, exist_ok=True)
+    if not identity_root.is_dir():
+        raise VaultError(f"Installation identity directory is invalid: {identity_root}")
+    identity_path = identity_root / "installation-id"
+    if identity_path.is_symlink():
+        raise VaultError(f"Installation identity must not be a symlink: {identity_path}")
+    if not identity_path.exists():
+        token = secrets.token_hex(16)
+        try:
+            with identity_path.open("x", encoding="ascii") as handle:
+                handle.write(token)
+        except FileExistsError:
+            pass
+    if not identity_path.is_file():
+        raise VaultError(f"Installation identity is invalid: {identity_path}")
+    value = identity_path.read_text(encoding="ascii").strip()
+    if not re.fullmatch(r"[0-9a-f]{32}", value):
+        raise VaultError(f"Installation identity is invalid: {identity_path}")
+    return value
+
+
+def _installation_metadata(adapter: PlatformAdapter) -> Dict[str, str]:
+    return {
+        "platform": adapter.platform_id,
+        "home": str(adapter.home),
+        "id": _local_installation_id(adapter),
+    }
+
+
+def _state_is_from_another_installation(
+    state: Dict[str, Any], adapter: PlatformAdapter
+) -> bool:
+    rows = state_deployments(state)
+    installation = state.get("installation")
+    if isinstance(installation, dict):
+        recorded_home = installation.get("home")
+        if not recorded_home:
+            return False
+        homes = {_deployment_home(row) for row in rows}
+        if rows and (None in homes or homes != {_normalized_home(recorded_home)}):
+            raise VaultError("Install state metadata does not match its deployment paths")
+        return not adapter.installation_matches(installation)
+
+    if not rows:
+        return False
+    homes = {_deployment_home(row) for row in rows}
+    if None in homes or len(homes) != 1:
+        raise VaultError("Install state contains invalid or mixed deployment roots")
+    return next(iter(homes)) != _normalized_home(adapter.home)
+
+
+def current_state_deployments(
+    state: Dict[str, Any], adapter: Optional[PlatformAdapter] = None
+) -> List[Dict[str, Any]]:
+    platform_adapter = adapter or current_platform()
+    if _state_is_from_another_installation(state, platform_adapter):
+        return []
+    return state_deployments(state)
+
+
+def managed_current_state_deployments(
+    state: Dict[str, Any], adapter: Optional[PlatformAdapter] = None
+) -> List[Dict[str, Any]]:
+    platform_adapter = adapter or current_platform()
+    return [
+        row
+        for row in current_state_deployments(state, platform_adapter)
+        if platform_adapter.manages_skill_path(row.get("platform"), row.get("path"))
+    ]
+
+
 def _known_deployments(
     vault: Vault,
     state: Dict[str, Any],
     adapter: Optional[PlatformAdapter] = None,
 ) -> List[Dict[str, Any]]:
-    """Merge persisted deployments with recoverable filesystem evidence."""
+    """Merge current-installation state with recoverable filesystem evidence."""
 
-    rows = state_deployments(state)
+    platform_adapter = adapter or current_platform()
+    rows = current_state_deployments(state, platform_adapter)
     by_path = {str(row.get("path")): row for row in rows if row.get("path")}
-    for row in _discovered_vault_deployments(vault, adapter):
+    for row in _discovered_vault_deployments(vault, platform_adapter):
         by_path.setdefault(row["path"], row)
     return list(by_path.values())
 
 
-def _deployment_in_managed_bounds(
+def deployment_in_managed_bounds(
     vault: Vault,
     row: Dict[str, Any],
     adapter: PlatformAdapter,
 ) -> bool:
-    platform = row.get("platform")
-    roots = adapter.agent_skill_dirs()
-    if platform not in roots or not row.get("path") or not row.get("target"):
-        return False
-    destination = Path(str(row["path"]))
-    return destination.parent.resolve() == roots[platform].resolve()
+    return bool(
+        row.get("target")
+        and adapter.manages_skill_path(row.get("platform"), row.get("path"))
+    )
 
 
 def confirm(question: str, assume_yes: bool = False) -> bool:
@@ -647,7 +749,7 @@ def doctor(vault: Vault) -> Tuple[List[str], List[str]]:
         else:
             warnings.append(f"Optional executable not found: {program}")
     state = load_data(vault.state_dir / "install-state.json", {"links": []})
-    for deployment in state_deployments(state):
+    for deployment in managed_current_state_deployments(state):
         path = Path(deployment["path"])
         if deployment_is_current(deployment):
             checks.append(f"managed {deployment.get('deployment_type', 'symlink')} ok: {path}")
@@ -744,8 +846,10 @@ def create_backup(vault: Vault, adapter: Optional[PlatformAdapter] = None) -> Pa
     platform = adapter or current_platform()
     targets = platform.backup_targets()
     install_state = load_data(vault.state_dir / "install-state.json", {"links": []})
+    if state_deployments(install_state):
+        write_data(backup / "previous-install-state.json", install_state)
     deployments = _known_deployments(vault, install_state, platform)
-    if any(not _deployment_in_managed_bounds(vault, row, platform) for row in deployments):
+    if any(not deployment_in_managed_bounds(vault, row, platform) for row in deployments):
         raise VaultError("Install state contains a deployment outside managed platform roots")
     manifest: Dict[str, Any] = {
         "schema_version": 1,
@@ -1036,7 +1140,7 @@ def install(
     backup = backup_path or create_backup(vault, platform_adapter)
     old_state = load_data(vault.state_dir / "install-state.json", {"links": []})
     old_deployments = _known_deployments(vault, old_state, platform_adapter)
-    if any(not _deployment_in_managed_bounds(vault, row, platform_adapter) for row in old_deployments):
+    if any(not deployment_in_managed_bounds(vault, row, platform_adapter) for row in old_deployments):
         raise VaultError("Install state contains a deployment outside managed platform roots")
     managed_by_path = {
         str(item.get("path")): item
@@ -1072,6 +1176,7 @@ def install(
         raise
     state = {
         "schema_version": 2,
+        "installation": _installation_metadata(platform_adapter),
         "installed_at": now_iso(),
         "profiles": list(profiles),
         "backup": str(backup) if backup else None,
@@ -1089,7 +1194,7 @@ def uninstall(vault: Vault, assume_yes: bool = False) -> int:
     state = load_data(state_path, {"links": []})
     platform = current_platform()
     deployments = _known_deployments(vault, state, platform)
-    if any(not _deployment_in_managed_bounds(vault, row, platform) for row in deployments):
+    if any(not deployment_in_managed_bounds(vault, row, platform) for row in deployments):
         raise VaultError("Install state contains a deployment outside managed platform roots")
     if not deployments:
         return 0
@@ -1099,7 +1204,16 @@ def uninstall(vault: Vault, assume_yes: bool = False) -> int:
     for deployment in deployments:
         if remove_deployment(deployment):
             removed += 1
-    write_data(state_path, {"schema_version": 2, "deployments": [], "links": [], "uninstalled_at": now_iso()})
+    write_data(
+        state_path,
+        {
+            "schema_version": 2,
+            "installation": _installation_metadata(platform),
+            "deployments": [],
+            "links": [],
+            "uninstalled_at": now_iso(),
+        },
+    )
     return removed
 
 
@@ -1138,7 +1252,7 @@ def _validated_backup_manifest(
             raise VaultError(f"Backup payload is missing: {label}")
     deployments = manifest.get("deployments", [])
     if not isinstance(deployments, list) or any(
-        not isinstance(row, dict) or not _deployment_in_managed_bounds(vault, row, platform)
+        not isinstance(row, dict) or not deployment_in_managed_bounds(vault, row, platform)
         for row in deployments
     ):
         raise VaultError("Backup manifest contains an unsafe deployment")
@@ -1173,6 +1287,7 @@ def restore_backup(
         vault.state_dir / "install-state.json",
         {
             "schema_version": 2,
+            "installation": _installation_metadata(platform),
             "deployments": deployments,
             "links": legacy_links(deployments),
             "restored_at": now_iso(),

@@ -520,14 +520,15 @@ class ManagedSelectionTests(unittest.TestCase):
             result = save_managed_selection(vault, {"my/one": "codex"})
             self.assertEqual(result["selections"], {"my/one": "codex"})
             self.assertEqual(vault.active_profiles(), ["ui-shared", "ui-codex", "ui-claude", "ui-lux"])
-            install(
-                vault,
-                vault.active_profiles(),
-                assume_yes=True,
-                adapter=PlatformAdapter("windows", root / "home"),
-            )
-            codex = vault.resolve_profile_details(vault.active_profiles(), "codex")
-            claude = vault.resolve_profile_details(vault.active_profiles(), "claude")
+            with patch("pathlib.Path.home", return_value=root / "home"):
+                install(
+                    vault,
+                    vault.active_profiles(),
+                    assume_yes=True,
+                    adapter=PlatformAdapter("windows", root / "home"),
+                )
+                codex = vault.resolve_profile_details(vault.active_profiles(), "codex")
+                claude = vault.resolve_profile_details(vault.active_profiles(), "claude")
             self.assertTrue(codex["status"]["my/one"]["installed"])
             self.assertNotIn("my/one", claude["status"])
 
@@ -568,15 +569,15 @@ class ManagedSelectionTests(unittest.TestCase):
             with patch("pathlib.Path.home", return_value=home):
                 preview = install_preview(vault, vault.active_profiles())
                 result = install_apply(vault, preview["preview_token"])
-            self.assertTrue((vault.state_dir / "backups" / result["backup_id"] / "manifest.json").exists())
-            state = json.loads((vault.state_dir / "install-state.json").read_text())
-            self.assertEqual({item["platform"] for item in state["links"]}, {"codex", "claude", "lux"})
-            lux_md = home / ".lux" / "skills" / "duplicate.md"
-            self.assertTrue(lux_md.is_file())
-            self.assertTrue((home / ".lux" / "skills" / "duplicate" / "SKILL.md").is_file())
-            self.assertEqual(vault.resolve_profile_details(vault.active_profiles(), "lux")["status"]["my/one"]["state"], "installed")
-            lux_md.unlink()
-            self.assertEqual(vault.resolve_profile_details(vault.active_profiles(), "lux")["status"]["my/one"]["state"], "drifted")
+                self.assertTrue((vault.state_dir / "backups" / result["backup_id"] / "manifest.json").exists())
+                state = json.loads((vault.state_dir / "install-state.json").read_text())
+                self.assertEqual({item["platform"] for item in state["links"]}, {"codex", "claude", "lux"})
+                lux_md = home / ".lux" / "skills" / "duplicate.md"
+                self.assertTrue(lux_md.is_file())
+                self.assertTrue((home / ".lux" / "skills" / "duplicate" / "SKILL.md").is_file())
+                self.assertEqual(vault.resolve_profile_details(vault.active_profiles(), "lux")["status"]["my/one"]["state"], "installed")
+                lux_md.unlink()
+                self.assertEqual(vault.resolve_profile_details(vault.active_profiles(), "lux")["status"]["my/one"]["state"], "drifted")
 
 
 class SkillDeletionTests(unittest.TestCase):
@@ -620,10 +621,10 @@ class SkillDeletionTests(unittest.TestCase):
                 vault.state_dir / "install-state.json",
                 {"schema_version": 1, "links": [{"path": str(managed), "target": str(root / "my-skills" / "demo"), "skill_id": "my/demo", "platform": "codex"}]},
             )
-            preview = delete_skills_preview(vault, ["my/demo"])
-            self.assertEqual(preview["counts"]["skills"], 1)
-            self.assertEqual(preview["counts"]["links"], 1)
             with patch("pathlib.Path.home", return_value=home):
+                preview = delete_skills_preview(vault, ["my/demo"])
+                self.assertEqual(preview["counts"]["skills"], 1)
+                self.assertEqual(preview["counts"]["links"], 1)
                 result = delete_skills_apply(vault, preview["preview_token"])
             self.assertEqual(result["deleted"], ["my/demo"])
             self.assertFalse((root / "my-skills" / "demo").exists())
@@ -731,10 +732,10 @@ class SourcePolicyTests(unittest.TestCase):
                 links.append({"path": str(link), "target": str(link.resolve()), "skill_id": "up/demo", "platform": platform})
             write_data(vault.state_dir / "install-state.json", {"schema_version": 1, "links": links})
 
-            preview = source_policy_preview(vault, "up", False)
-            self.assertEqual(preview["skill_count"], 1)
-            self.assertEqual(len(preview["installed_links"]), 2)
             with patch("pathlib.Path.home", return_value=home):
+                preview = source_policy_preview(vault, "up", False)
+                self.assertEqual(preview["skill_count"], 1)
+                self.assertEqual(len(preview["installed_links"]), 2)
                 result = source_policy_apply(vault, preview["preview_token"])
 
             self.assertFalse(result["enabled"])
