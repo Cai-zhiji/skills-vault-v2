@@ -44,6 +44,7 @@ from .migrations import (
     web_v2_migration_plan,
 )
 from .ops import (
+    InstallRollbackError,
     apply_updates,
     create_backup,
     current_state_deployments,
@@ -67,12 +68,9 @@ MANAGED_PROFILES = ("ui-shared", "ui-codex", "ui-claude", "ui-lux")
 MODE_PLATFORMS = {
     "off": frozenset(),
     "both": frozenset({"codex", "claude"}),
-    "all": frozenset(SUPPORTED_PLATFORMS),
     "codex": frozenset({"codex"}),
     "claude": frozenset({"claude"}),
     "lux": frozenset({"lux"}),
-    "codex-lux": frozenset({"codex", "lux"}),
-    "claude-lux": frozenset({"claude", "lux"}),
 }
 PLATFORMS_MODE = {platforms: mode for mode, platforms in MODE_PLATFORMS.items()}
 
@@ -895,7 +893,7 @@ def source_policy_preview(vault: Vault, source_id: str, enabled: bool) -> Dict[s
         "notes": [
             "不会删除第三方仓库、Skill 文件、说明文档或 Profile 中的原始选择。",
             "关闭后，来源策略会在 Profile 解析之前统一过滤该仓库的 Skills。",
-            "应用时会先备份，再同步 Codex、Claude Code 与 Lux Desktop 的受管部署。",
+            "应用时会先备份，再同步 Codex、Claude Code 与 Lux Neo 的受管部署。",
         ],
     }
     plan["preview_token"] = _issue_token(vault, "source.policy", {"plan": plan})
@@ -1489,20 +1487,27 @@ def install_apply(vault: Vault, token: str, reset: bool = False) -> Dict[str, An
             backup_path=backup,
         )
     except Exception as exc:
+        rollback_failed = isinstance(exc, InstallRollbackError)
+        status = "rollback-failed" if rollback_failed else "rolled-back"
         _record_transaction(
             vault,
             tx,
             {
                 "operation": "install",
-                "status": "rolled-back",
+                "status": status,
                 "profiles": profiles,
                 "backup": backup.name,
                 "error": str(exc),
             },
         )
+        message = (
+            f"安装失败，且无法自动恢复备份 {backup.name}：{exc}"
+            if rollback_failed
+            else f"安装失败，已从备份 {backup.name} 恢复：{exc}"
+        )
         raise ServiceError(
-            "install_failed",
-            f"安装失败，已从备份 {backup.name} 恢复：{exc}",
+            "install_rollback_failed" if rollback_failed else "install_failed",
+            message,
             {"transaction_id": tx, "backup_id": backup.name},
         ) from exc
     _record_transaction(
@@ -1640,7 +1645,7 @@ def save_managed_selection(vault: Vault, selections: Dict[str, Any]) -> Dict[str
         },
         "ui-lux": {
             "schema_version": 1,
-            "description": "UI-managed Lux Desktop skills.",
+            "description": "UI-managed Lux Neo skills.",
             "platform": "lux",
             "include": platform_selections["lux"],
             "classification": ["published"],

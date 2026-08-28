@@ -3,20 +3,14 @@ import type { SelectionMode } from "@/types/api"
 export const modePlatforms: Record<SelectionMode, string[]> = {
   off: [],
   both: ["codex", "claude"],
-  all: ["codex", "claude", "lux"],
   codex: ["codex"],
   claude: ["claude"],
   lux: ["lux"],
-  "codex-lux": ["codex", "lux"],
-  "claude-lux": ["claude", "lux"],
 }
 
 const modeOrder: SelectionMode[] = [
   "off",
-  "all",
   "both",
-  "codex-lux",
-  "claude-lux",
   "codex",
   "claude",
   "lux",

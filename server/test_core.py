@@ -539,19 +539,22 @@ class ManagedSelectionTests(unittest.TestCase):
             self.assertEqual(result["selections"], {"my/one": "both"})
             self.assertEqual(result["resolved"]["lux"]["direct"], [])
 
-    def test_three_platform_combinations_round_trip(self):
+    def test_lux_neo_is_standalone_and_combination_modes_are_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             vault = self.make_vault(Path(directory))
-            for mode in ("all", "codex-lux", "claude-lux", "lux"):
-                result = save_managed_selection(vault, {"my/one": mode})
-                self.assertEqual(result["selections"], {"my/one": mode})
+            result = save_managed_selection(vault, {"my/one": "lux"})
+            self.assertEqual(result["selections"], {"my/one": "lux"})
+            for mode in ("all", "codex-lux", "claude-lux"):
+                with self.assertRaises(ServiceError) as caught:
+                    save_managed_selection(vault, {"my/one": mode})
+                self.assertEqual(caught.exception.code, "invalid_selection")
 
     def test_install_preview_expires_when_skill_content_changes(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "vault"
             home = Path(directory) / "home"
             vault = self.make_vault(root)
-            save_managed_selection(vault, {"my/one": "all"})
+            save_managed_selection(vault, {"my/one": "lux"})
             with patch("pathlib.Path.home", return_value=home):
                 preview = install_preview(vault, vault.active_profiles())
                 skill_md = root / "my-skills" / "one" / "SKILL.md"
@@ -565,16 +568,16 @@ class ManagedSelectionTests(unittest.TestCase):
             root = Path(directory) / "vault"
             home = Path(directory) / "home"
             vault = self.make_vault(root)
-            save_managed_selection(vault, {"my/one": "all"})
+            save_managed_selection(vault, {"my/one": "lux"})
             with patch("pathlib.Path.home", return_value=home):
                 preview = install_preview(vault, vault.active_profiles())
                 result = install_apply(vault, preview["preview_token"])
                 self.assertTrue((vault.state_dir / "backups" / result["backup_id"] / "manifest.json").exists())
                 state = json.loads((vault.state_dir / "install-state.json").read_text())
-                self.assertEqual({item["platform"] for item in state["links"]}, {"codex", "claude", "lux"})
-                lux_md = home / ".lux" / "skills" / "duplicate.md"
+                self.assertEqual({item["platform"] for item in state["links"]}, {"lux"})
+                lux_md = home / ".lux_neo" / "skills" / "duplicate.md"
                 self.assertTrue(lux_md.is_file())
-                self.assertTrue((home / ".lux" / "skills" / "duplicate" / "SKILL.md").is_file())
+                self.assertTrue((home / ".lux_neo" / "skills" / "duplicate" / "SKILL.md").is_file())
                 self.assertEqual(vault.resolve_profile_details(vault.active_profiles(), "lux")["status"]["my/one"]["state"], "installed")
                 lux_md.unlink()
                 self.assertEqual(vault.resolve_profile_details(vault.active_profiles(), "lux")["status"]["my/one"]["state"], "drifted")

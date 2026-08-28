@@ -2,6 +2,10 @@ import { spawnSync } from "node:child_process"
 
 export const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm"
 
+function requiresCommandShell(command) {
+  return process.platform === "win32" && /\.(?:cmd|bat)$/i.test(command)
+}
+
 export function findPython() {
   const candidates = process.platform === "win32"
     ? [["py", ["-3"]], ["python", []], ["python3", []]]
@@ -14,7 +18,10 @@ export function findPython() {
 }
 
 export function commandVersion(command, args = ["--version"]) {
-  const result = spawnSync(command, args, { encoding: "utf8" })
+  const result = spawnSync(command, args, {
+    encoding: "utf8",
+    shell: requiresCommandShell(command),
+  })
   if (result.status !== 0) return null
   return `${result.stdout}${result.stderr}`.trim().split(/\r?\n/, 1)[0]
 }
@@ -25,6 +32,7 @@ export function run(command, args, options = {}) {
     env: options.env || process.env,
     stdio: options.capture ? "pipe" : "inherit",
     encoding: "utf8",
+    shell: requiresCommandShell(command),
   })
   if (result.error) throw result.error
   if (result.status !== 0) {

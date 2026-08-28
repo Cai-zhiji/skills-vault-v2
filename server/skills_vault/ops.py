@@ -31,11 +31,16 @@ from .deployment import (
     legacy_links,
     path_fingerprint,
     remove_deployment,
+    remove_path,
     state_deployments,
 )
 from .platform_adapter import PlatformAdapter, SUPPORTED_PLATFORMS, current_platform
 from .executable_resolver import environment_for, resolve_executable
 from .skills_cli import update as update_skills_cli_source
+
+
+class InstallRollbackError(VaultError):
+    """Raised when an install fails and its automatic backup restore also fails."""
 
 
 def _discovered_vault_deployments(
@@ -122,9 +127,15 @@ def _normalized_home(value: Any) -> str:
 def _deployment_home(row: Dict[str, Any]) -> Optional[str]:
     value = str(row.get("path") or "")
     platform = row.get("platform")
-    markers = {"codex": ".agents", "claude": ".claude", "lux": ".lux"}
-    marker = markers.get(platform)
-    if not value or not marker:
+    markers = {
+        "codex": {".agents"},
+        "claude": {".claude"},
+        # Old Lux rows remain valid only long enough to migrate their managed
+        # deployments into Lux Neo's LUX_HOME.
+        "lux": {".lux", ".lux_neo"},
+    }
+    platform_markers = markers.get(platform)
+    if not value or not platform_markers:
         return None
     windows_path = PureWindowsPath(value)
     if windows_path.is_absolute():
@@ -135,7 +146,7 @@ def _deployment_home(row: Dict[str, Any]) -> Optional[str]:
             return None
         destination = posix_path
     skills_root = destination.parent
-    if skills_root.name != "skills" or skills_root.parent.name != marker:
+    if skills_root.name != "skills" or skills_root.parent.name not in platform_markers:
         return None
     return _normalized_home(skills_root.parent.parent)
 
@@ -761,10 +772,7 @@ def doctor(vault: Vault) -> Tuple[List[str], List[str]]:
 
 
 def _remove_path(path: Path) -> None:
-    if path.is_symlink() or path.is_file():
-        path.unlink()
-    elif path.is_dir():
-        shutil.rmtree(path)
+    remove_path(path)
 
 
 def _copy_entry(source: Path, destination: Path) -> None:
@@ -844,13 +852,18 @@ def create_backup(vault: Vault, adapter: Optional[PlatformAdapter] = None) -> Pa
         suffix += 1
     backup.mkdir(parents=True, exist_ok=False)
     platform = adapter or current_platform()
-    targets = platform.backup_targets()
     install_state = load_data(vault.state_dir / "install-state.json", {"links": []})
     if state_deployments(install_state):
         write_data(backup / "previous-install-state.json", install_state)
     deployments = _known_deployments(vault, install_state, platform)
     if any(not deployment_in_managed_bounds(vault, row, platform) for row in deployments):
         raise VaultError("Install state contains a deployment outside managed platform roots")
+    targets = platform.backup_targets()
+    if not any(
+        row.get("platform") == "lux" and platform.is_legacy_lux_skill_path(row.get("path"))
+        for row in deployments
+    ):
+        targets.pop("lux-skills", None)
     manifest: Dict[str, Any] = {
         "schema_version": 1,
         "created_at": now_iso(),
@@ -895,10 +908,10 @@ def _validate_lux_watcher(
     skill_root: Path,
 ) -> None:
     if not isinstance(payload, dict) or set(payload) - {"version", "skill", "watchers"}:
-        raise VaultError(f"Lux watcher has an invalid schema: {watcher_path}")
+        raise VaultError(f"Lux Neo watcher has an invalid schema: {watcher_path}")
     watchers = payload.get("watchers")
     if payload.get("version") != 1 or payload.get("skill") != skill_name or not isinstance(watchers, list):
-        raise VaultError(f"Lux watcher has an invalid schema: {watcher_path}")
+        raise VaultError(f"Lux Neo watcher has an invalid schema: {watcher_path}")
 
     allowed_fields = {
         "id", "name", "enabled", "promptRef", "triggers", "cooldownTurns",
@@ -917,7 +930,7 @@ def _validate_lux_watcher(
     seen_ids = set()
     for watcher in watchers:
         if not isinstance(watcher, dict) or set(watcher) - allowed_fields:
-            raise VaultError(f"Lux watcher entry has an invalid schema: {watcher_path}")
+            raise VaultError(f"Lux Neo watcher entry has an invalid schema: {watcher_path}")
         watcher_id = watcher.get("id")
         prompt_ref = watcher.get("promptRef")
         triggers = watcher.get("triggers")
@@ -934,12 +947,12 @@ def _validate_lux_watcher(
             or not isinstance(triggers, list)
             or not triggers
         ):
-            raise VaultError(f"Lux watcher entry has an invalid schema: {watcher_path}")
+            raise VaultError(f"Lux Neo watcher entry has an invalid schema: {watcher_path}")
         seen_ids.add(watcher_id)
         for field in numeric_fields:
             value = watcher.get(field)
             if value is not None and (isinstance(value, bool) or not isinstance(value, int) or value < 0):
-                raise VaultError(f"Lux watcher entry has an invalid schema: {watcher_path}")
+                raise VaultError(f"Lux Neo watcher entry has an invalid schema: {watcher_path}")
         prompt_path = skill_root / prompt_ref
         if (
             prompt_path.is_symlink()
@@ -947,13 +960,13 @@ def _validate_lux_watcher(
             or prompt_path.resolve().parent != skill_root
             or prompt_path.stat().st_size > 16 * 1024
         ):
-            raise VaultError(f"Lux watcher prompt is invalid: {prompt_path}")
+            raise VaultError(f"Lux Neo watcher prompt is invalid: {prompt_path}")
         for trigger in triggers:
             if not isinstance(trigger, dict) or trigger.get("type") not in trigger_fields:
-                raise VaultError(f"Lux watcher trigger has an invalid schema: {watcher_path}")
+                raise VaultError(f"Lux Neo watcher trigger has an invalid schema: {watcher_path}")
             trigger_type = trigger["type"]
             if set(trigger) - trigger_fields[trigger_type]:
-                raise VaultError(f"Lux watcher trigger has an invalid schema: {watcher_path}")
+                raise VaultError(f"Lux Neo watcher trigger has an invalid schema: {watcher_path}")
             if trigger_type == "user_message_contains":
                 keywords = trigger.get("keywords")
                 if (
@@ -962,11 +975,11 @@ def _validate_lux_watcher(
                     or not all(isinstance(item, str) and item for item in keywords)
                     or ("caseSensitive" in trigger and not isinstance(trigger["caseSensitive"], bool))
                 ):
-                    raise VaultError(f"Lux watcher trigger has an invalid schema: {watcher_path}")
+                    raise VaultError(f"Lux Neo watcher trigger has an invalid schema: {watcher_path}")
             elif trigger_type == "after_tool_call":
                 tools = trigger.get("tools")
                 if not isinstance(tools, list) or not tools or not all(isinstance(item, str) and item for item in tools):
-                    raise VaultError(f"Lux watcher trigger has an invalid schema: {watcher_path}")
+                    raise VaultError(f"Lux Neo watcher trigger has an invalid schema: {watcher_path}")
 
 
 def _platform_install_operations(
@@ -1023,11 +1036,11 @@ def _platform_install_operations(
     watcher_source = watcher if watcher.is_file() else named_watcher
     if watcher_source.is_file():
         if watcher_source.is_symlink() or watcher_source.resolve().parent != source:
-            raise VaultError(f"Lux watcher must be a regular file inside the Skill: {watcher_source}")
+            raise VaultError(f"Lux Neo watcher must be a regular file inside the Skill: {watcher_source}")
         try:
             watcher_payload = json.loads(watcher_source.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
-            raise VaultError(f"Lux watcher is not valid JSON: {watcher_source}") from exc
+            raise VaultError(f"Lux Neo watcher is not valid JSON: {watcher_source}") from exc
         _validate_lux_watcher(watcher_source, watcher_payload, entry["name"], source)
         operations.append(
             {
@@ -1134,7 +1147,7 @@ def install(
         paths = ", ".join(str(item.get("path")) for item in plan["blocked"])
         raise VaultError(f"Install is blocked by modified managed destinations: {paths}")
     if reset and not confirm(
-        "Back up and rebuild user-level Codex, Claude Code, and Lux skills plus Claude commands?", assume_yes
+        "Back up and rebuild user-level Codex, Claude Code, and Lux Neo skills plus Claude commands?", assume_yes
     ):
         raise VaultError("Install cancelled")
     backup = backup_path or create_backup(vault, platform_adapter)
@@ -1165,14 +1178,19 @@ def install(
             deployed.append(row)
             if not existed:
                 newly_created.append(row)
-    except Exception:
+    except Exception as install_error:
         for row in reversed(newly_created):
             try:
                 remove_deployment(row)
             except Exception:
                 pass
         if backup:
-            _restore_backup_path(vault, backup, platform_adapter)
+            try:
+                _restore_backup_path(vault, backup, platform_adapter)
+            except Exception as restore_error:
+                raise InstallRollbackError(
+                    f"Install failed ({install_error}); automatic restore from {backup.name} also failed ({restore_error})"
+                ) from restore_error
         raise
     state = {
         "schema_version": 2,

@@ -145,7 +145,7 @@ Web v2 迁移默认创建独立 Vault，原地打开仅作为兼容选项。迁�
 平台适配器返回结构化能力，而不是散布 `sys.platform` 判断：
 
 - 平台和架构标识；
-- 用户主目录与 Codex / Claude Code / Lux Desktop 目标目录；
+- 用户主目录与 Codex / Claude Code / Lux Neo 目标目录；
 - 可执行文件候选名和扩展名；
 - 是否支持 symlink；
 - 默认部署策略；
@@ -167,7 +167,7 @@ remove(managed_entry) -> RemovalResult
 
 部署策略：
 
-- Codex / Claude Code 继续部署完整 Skill 目录；Lux Desktop 把 `SKILL.md` 映射为 `~/.lux/skills/<name>.md`，完整 Skill 目录作为同名资源目录，并映射可选 watcher JSON；
+- Codex / Claude Code 继续部署完整 Skill 目录；Lux Neo 把 `SKILL.md` 映射为 `$LUX_HOME/skills/<name>.md`（默认 `~/.lux_neo/skills/<name>.md`），完整 Skill 目录作为同名资源目录，并映射可选 watcher JSON；
 - macOS/Linux 默认 `symlink`，Lux 的入口文件使用文件 symlink；
 - Windows 默认 `managed-copy`，Lux 的入口文件使用 `managed-copy-file`，避免要求管理员权限或开发者模式；
 - Windows 后续可在能力探测通过时允许用户选择目录链接，但不作为首版成功条件。

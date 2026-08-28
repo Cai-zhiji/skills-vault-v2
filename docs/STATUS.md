@@ -9,7 +9,7 @@
 - [x] 完成 React 工作台、Python 本地 API、Catalog、来源、Profile、批量管理、说明文档、事务和恢复等 Web v2 基础能力。
 - [x] 完成跨平台路径与平台适配层，覆盖 macOS、Windows、Linux 的应用目录和 Agent Skills 目标目录。
 - [x] 完成 symlink / managed-copy 部署器和安装状态 schema v2；Windows 默认受管复制，用户修改目标时阻止覆盖或删除。
-- [x] 平台目标扩展到 Codex、Claude Code 与 Lux Desktop；Lux 的 Markdown 入口、资源目录和可选 watcher 配置分别纳管，并保持旧 `both` 选择语义。
+- [x] 平台目标为 Codex、Claude Code 与 Lux Neo；Lux Neo 的 Markdown 入口、资源目录和可选 watcher 配置部署到 `$LUX_HOME/skills`，仅支持独立启用，并保持旧 `both` 只代表 Codex + Claude Code。
 - [x] 完成空 Vault 初始化、候选目录识别、普通 Skills 文件夹导入和 Web v2 复制迁移，写操作均使用 Preview / Apply。
 - [x] 完成原创 Skill 创建预览，并把前端创建流程切换到一次性 Preview token。
 - [x] 完成 Git、Node/npm/npx 与 Skills CLI 可选依赖检测、受控安装计划和依赖中心界面。

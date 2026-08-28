@@ -19,10 +19,7 @@ describe("selection helpers", () => {
     ])
     expect(availableModes(["codex", "claude", "lux"])).toEqual([
       "off",
-      "all",
       "both",
-      "codex-lux",
-      "claude-lux",
       "codex",
       "claude",
       "lux",

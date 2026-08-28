@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input"
 
 const topics = [
   { icon: BookOpenText, title: "开始使用", text: "首次启动时可以创建新 Vault、打开已有 Vault、导入 Skills 文件夹，或迁移旧版 Web Vault。" },
-  { icon: GitBranch, title: "理解同步轨", text: "本地文件、Catalog、Codex、Claude Code 和 Lux Desktop 是不同状态。保存选择不等于已经安装到平台。" },
+  { icon: GitBranch, title: "理解同步轨", text: "本地文件、Catalog、Codex、Claude Code 和 Lux Neo 是不同状态。保存选择不等于已经安装到平台。" },
   { icon: ShieldCheck, title: "安全写入", text: "更新、同步、恢复和导入都会先生成 Preview；确认后才会写入，并留下事务和备份记录。" },
   { icon: RotateCcw, title: "恢复与回滚", text: "在记录页面打开备份并预览恢复。来源中的本地改动不会被应用自动整理、提交或覆盖。" },
   { icon: CircleAlert, title: "遇到阻塞", text: "脏来源、同名冲突、分叉更新和受管复制目标被修改时，先按页面提供的差异或修复建议处理。" },

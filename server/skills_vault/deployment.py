@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import shutil
+import stat
 import tempfile
 from pathlib import Path
 from typing import Any, Dict, Iterable, List
@@ -74,13 +76,33 @@ def deployment_is_current(row: Dict[str, Any]) -> bool:
     return False
 
 
+def _remove_readonly(function: Any, value: str, _: Any) -> None:
+    path = Path(value)
+    if not path.is_symlink():
+        os.chmod(path, stat.S_IWRITE | stat.S_IREAD)
+    function(value)
+
+
+def remove_path(path: Path) -> None:
+    if path.is_symlink() or path.is_file():
+        try:
+            path.unlink()
+        except PermissionError:
+            if path.is_symlink():
+                raise
+            os.chmod(path, stat.S_IWRITE | stat.S_IREAD)
+            path.unlink()
+    elif path.is_dir():
+        shutil.rmtree(path, onerror=_remove_readonly)
+
+
 def remove_deployment(row: Dict[str, Any], *, allow_modified_copy: bool = False) -> bool:
     destination = Path(row["path"])
     kind = row.get("deployment_type", "symlink")
     if kind in {"symlink", "symlink-file"}:
         if not destination.is_symlink() or destination.resolve() != Path(row["target"]).resolve():
             return False
-        destination.unlink()
+        remove_path(destination)
         return True
     if kind in {"managed-copy", "managed-copy-file"}:
         if not destination.exists():
@@ -89,10 +111,7 @@ def remove_deployment(row: Dict[str, Any], *, allow_modified_copy: bool = False)
         current = path_fingerprint(destination)
         if not allow_modified_copy and (not expected or current != expected):
             raise VaultError(f"Managed copy has user changes and will not be removed: {destination}")
-        if destination.is_dir():
-            shutil.rmtree(destination)
-        else:
-            destination.unlink()
+        remove_path(destination)
         return True
     raise VaultError(f"Unsupported deployment type: {kind}")
 

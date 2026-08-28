@@ -1,12 +1,9 @@
 export type SelectionMode =
   | "off"
   | "both"
-  | "all"
   | "codex"
   | "claude"
   | "lux"
-  | "codex-lux"
-  | "claude-lux"
 
 export interface CatalogState {
   fresh: boolean
