@@ -11,7 +11,7 @@ import type { DependenciesPayload, DesktopStatusPayload, StatusPayload } from "@
 
 const sections = [
   { id: "vault", label: "Vault", icon: FolderCog, title: "Vault 与工作区", description: "管理当前工作区和桌面配置。" },
-  { id: "platform", label: "平台", icon: Laptop, title: "Agent 平台", description: "查看 Codex、Claude Code 与 Lux Desktop 的目标位置。" },
+  { id: "platform", label: "平台", icon: Laptop, title: "Agent 平台", description: "查看 Codex、Claude Code 与 Lux Neo 的目标位置。" },
   { id: "dependencies", label: "依赖", icon: ShieldCheck, title: "外部依赖", description: "Git、Node.js 与 Skills CLI 的检测结果位于来源页面。" },
   { id: "diagnostics", label: "诊断", icon: Wrench, title: "诊断与数据", description: "查看运行信息、日志位置和可恢复数据边界。" },
   { id: "appearance", label: "外观", icon: SlidersHorizontal, title: "外观与交互", description: "主题、密度和动态效果设置将在后续版本提供。" },

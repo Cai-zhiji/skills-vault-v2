@@ -736,7 +736,10 @@ class Vault:
                 return "codex"
             if any(parts[index : index + 2] == (".claude", "skills") for index in range(max(0, len(parts) - 1))):
                 return "claude"
-            if any(parts[index : index + 2] == (".lux", "skills") for index in range(max(0, len(parts) - 1))):
+            if any(
+                parts[index : index + 2] in {(".lux_neo", "skills"), (".lux", "skills")}
+                for index in range(max(0, len(parts) - 1))
+            ):
                 return "lux"
             return None
 
@@ -746,7 +749,7 @@ class Vault:
         installed = [
             item
             for item in installed
-            if platform_adapter.manages_skill_path(installed_platform(item), item.get("path"))
+            if platform_adapter.manages_active_skill_path(installed_platform(item), item.get("path"))
         ]
 
         allowed_sources = (

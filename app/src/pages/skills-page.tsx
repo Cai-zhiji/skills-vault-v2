@@ -69,13 +69,10 @@ import type {
 
 const modeLabels: Record<SelectionMode, string> = {
   off: "关闭",
-  all: "全部平台",
   both: "Codex + Claude",
-  "codex-lux": "Codex + Lux",
-  "claude-lux": "Claude + Lux",
   codex: "仅 Codex",
   claude: "仅 Claude",
-  lux: "仅 Lux",
+  lux: "仅 Lux Neo",
 }
 
 export function SkillsPage() {
@@ -243,7 +240,7 @@ export function SkillsPage() {
     const result = await runOperation(
       "install.preview",
       "生成安装 Preview",
-      "比较选择与 Codex / Claude Code / Lux Desktop 的实际部署",
+      "比较选择与 Codex / Claude Code / Lux Neo 的实际部署",
       () =>
         api.post<InstallPreview>("/api/install/preview", {
           profiles: selectionQuery.data?.active_profiles || [],

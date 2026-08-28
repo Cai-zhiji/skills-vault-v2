@@ -199,7 +199,7 @@ export function SkillDetailSheet({
                           {skill.enablement.claude.state}
                         </StatusPill>
                       </DetailRow>
-                      <DetailRow label="Lux Desktop">
+                      <DetailRow label="Lux Neo">
                         <StatusPill
                           status={skill.enablement.lux.selected ? "safe" : "muted"}
                         >

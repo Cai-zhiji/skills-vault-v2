@@ -70,8 +70,8 @@ Skills Vault 当前以 macOS/Linux 本地网站和 Bash 脚本交付。开发启
 
 ### R4：平台目录与 Skill 部署
 
-- 当系统计算 Codex、Claude Code 或 Lux Desktop 的目标目录时，应通过平台适配器返回路径，不得依赖硬编码路径分隔符判断平台。
-- 当部署到 Lux Desktop 时，应把 `SKILL.md` 映射为 `~/.lux/skills/<name>.md`，保留同名资源目录，并在存在且通过 schema 校验的 watcher 配置时映射为 `<name>.json`。
+- 当系统计算 Codex、Claude Code 或 Lux Neo 的目标目录时，应通过平台适配器返回路径，不得依赖硬编码路径分隔符判断平台。
+- 当部署到 Lux Neo 时，应把 `SKILL.md` 映射为 `$LUX_HOME/skills/<name>.md`（默认 `~/.lux_neo/skills/<name>.md`），保留同名资源目录，并在存在且通过 schema 校验的 watcher 配置时映射为 `<name>.json`。
 - 当旧 Profile 缺少 `platform` 或 `platforms` 时，应保持 Codex + Claude Code 语义，不得因升级静默部署到 Lux。
 - 当 Skill 名称可能逃逸平台目录或命中 Windows 保留设备名时，Catalog 与部署计划都应拒绝该条目。
 - 当平台适配器选择目录链接策略且能力检测通过时，系统应使用受管链接部署 Skill。
@@ -112,7 +112,7 @@ Skills Vault 当前以 macOS/Linux 本地网站和 Bash 脚本交付。开发启
 - 当用户导入普通 Skills 仓库时，系统应允许把仓库作为受管来源导入，或把选中的 Skills 复制为用户原创内容。
 - 当导入发现同名、无效 `SKILL.md`、嵌套 Skill 或目标路径冲突时，系统应在 Preview 中逐项显示并阻止静默覆盖。
 - 当用户迁移当前 Web v2 Vault 时，系统应复制事实数据和来源仓库、重新生成 Catalog，并把旧事务与备份标记为历史数据；运行 PID、日志、Preview token 和旧安装状态不得直接成为新 Vault 的活动状态。
-- 当 Web v2 迁移完成时，系统应比较迁移前后 Skill 数量和内容指纹，并单独预览 Codex / Claude Code / Lux Desktop 部署目标的重指向。
+- 当 Web v2 迁移完成时，系统应比较迁移前后 Skill 数量和内容指纹，并单独预览 Codex / Claude Code / Lux Neo 部署目标的重指向。
 - 当迁移任一步骤失败时，新 Vault 应回滚到未完成状态，旧 Vault 和原有平台链接应保持不变。
 
 ## 6. 非目标
@@ -126,4 +126,4 @@ Skills Vault 当前以 macOS/Linux 本地网站和 Bash 脚本交付。开发启
 
 ## 7. 完成定义
 
-在 macOS、Windows 和 Ubuntu 的干净环境中，用户可以安装并打开 Skills Vault；没有 Git/Skills CLI 时应用可正常进入并清楚显示受限能力；安装依赖后可重新检测；至少一个 Skill 能经过 Preview/Apply 部署到 Codex、Claude Code 或 Lux Desktop，并可从备份恢复；所有用户数据在应用升级和卸载后保持可恢复。
+在 macOS、Windows 和 Ubuntu 的干净环境中，用户可以安装并打开 Skills Vault；没有 Git/Skills CLI 时应用可正常进入并清楚显示受限能力；安装依赖后可重新检测；至少一个 Skill 能经过 Preview/Apply 部署到 Codex、Claude Code 或 Lux Neo，并可从备份恢复；所有用户数据在应用升级和卸载后保持可恢复。

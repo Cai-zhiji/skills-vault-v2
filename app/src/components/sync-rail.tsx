@@ -73,7 +73,7 @@ export function SyncRail({
     },
     {
       id: "lux",
-      label: "Lux Desktop",
+      label: "Lux Neo",
       meta: `${luxCount} 个应启用`,
       status: "safe",
       stateLabel: "已选择",

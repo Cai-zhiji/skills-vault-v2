@@ -18,13 +18,24 @@ class PlatformAdapter:
     system: str
     home: Path
     machine: str = ""
+    lux_neo_home: Optional[Path] = None
 
     @classmethod
     def current(cls) -> "PlatformAdapter":
+        home = Path.home()
+        configured_lux_home = os.environ.get("SKILLS_VAULT_LUX_NEO_HOME")
+        runtime_lux_home = os.environ.get("LUX_HOME")
+        if not configured_lux_home and runtime_lux_home:
+            candidate = Path(runtime_lux_home).expanduser()
+            candidate_parent = os.path.normcase(os.path.abspath(str(candidate.parent)))
+            current_home = os.path.normcase(os.path.abspath(str(home)))
+            if candidate.name == ".lux_neo" and candidate_parent == current_home:
+                configured_lux_home = runtime_lux_home
         return cls(
             system=platform_module.system().lower(),
-            home=Path.home(),
+            home=home,
             machine=platform_module.machine().lower(),
+            lux_neo_home=Path(configured_lux_home).expanduser() if configured_lux_home else None,
         )
 
     @property
@@ -49,20 +60,51 @@ class PlatformAdapter:
     def file_deployment_type(self) -> str:
         return "managed-copy-file" if self.is_windows else "symlink-file"
 
+    @property
+    def lux_neo_dir(self) -> Path:
+        return self.lux_neo_home or self.home / ".lux_neo"
+
+    @property
+    def legacy_lux_skill_dir(self) -> Path:
+        """Old Lux Desktop root, recognized only while removing managed legacy rows."""
+
+        return self.home / ".lux" / "skills"
+
     def agent_skill_dirs(self) -> Dict[str, Path]:
         return {
             "codex": self.home / ".agents" / "skills",
             "claude": self.home / ".claude" / "skills",
-            "lux": self.home / ".lux" / "skills",
+            "lux": self.lux_neo_dir / "skills",
         }
 
-    def manages_skill_path(self, platform: object, value: object) -> bool:
+    def managed_skill_roots(self, platform: object) -> tuple[Path, ...]:
+        key = str(platform)
+        root = self.agent_skill_dirs().get(key)
+        if root is None:
+            return ()
+        if key == "lux":
+            return (root, self.legacy_lux_skill_dir)
+        return (root,)
+
+    def is_legacy_lux_skill_path(self, value: object) -> bool:
+        if not value:
+            return False
+        destination_parent = os.path.normcase(os.path.abspath(str(Path(str(value)).parent)))
+        legacy_root = os.path.normcase(os.path.abspath(str(self.legacy_lux_skill_dir)))
+        return destination_parent == legacy_root
+
+    def manages_active_skill_path(self, platform: object, value: object) -> bool:
         root = self.agent_skill_dirs().get(str(platform))
         if root is None or not value:
             return False
         destination_parent = os.path.normcase(os.path.abspath(str(Path(str(value)).parent)))
         managed_root = os.path.normcase(os.path.abspath(str(root)))
         return destination_parent == managed_root
+
+    def manages_skill_path(self, platform: object, value: object) -> bool:
+        if self.manages_active_skill_path(platform, value):
+            return True
+        return str(platform) == "lux" and self.is_legacy_lux_skill_path(value)
 
     def installation_matches(self, installation: object) -> bool:
         if not isinstance(installation, dict):
@@ -91,7 +133,10 @@ class PlatformAdapter:
         return {
             "agents-skills": self.home / ".agents" / "skills",
             "claude-skills": self.home / ".claude" / "skills",
-            "lux-skills": self.home / ".lux" / "skills",
+            # Keep the historical label stable so older backups still restore
+            # to the old Lux Desktop root rather than into Lux Neo.
+            "lux-skills": self.legacy_lux_skill_dir,
+            "lux-neo-skills": self.agent_skill_dirs()["lux"],
             "claude-commands": self.home / ".claude" / "commands",
             "codex-skills-user": self.home / ".codex" / "skills",
         }

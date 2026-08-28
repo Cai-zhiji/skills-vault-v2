@@ -21,7 +21,7 @@
 - 视觉采用“本地仓库工作台”，以同步轨作为签名元素。见[确定视觉基线](tickets/003-visual-baseline.md)。
 - v2 使用独立新目录和本地 Git；完成迁移后，v2 根目录也是唯一活动数据工作区，旧项目仅作回滚副本。见[制定旧项目数据迁移方案](tickets/103-data-migration.md)。
 - 正式交付扩展为 Tauri 跨平台桌面应用，复用 React 与 Python sidecar；Git / Skills CLI 保持可选依赖。见[确定跨平台桌面交付方式](tickets/109-cross-platform-desktop-delivery.md)。
-- 平台目标扩展到 Codex、Claude Code 与 Lux Desktop；旧 `both` 继续只表示 Codex + Claude Code。见[增加 Lux Desktop 平台目标](tickets/111-lux-desktop-platform.md)。
+- 原 `lux` 平台已直接替换为 Lux Neo，部署到 `$LUX_HOME/skills`；Lux Neo 仅支持独立启用，旧 `both` 继续只表示 Codex + Claude Code。见[用 Lux Neo 替换 Lux 平台目标](tickets/111-lux-desktop-platform.md)。
 
 ## Decisions resolved autonomously
 

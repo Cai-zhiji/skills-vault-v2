@@ -1,3 +1,4 @@
+import stat
 import tempfile
 import unittest
 from pathlib import Path
@@ -28,7 +29,7 @@ class PlatformAdapterTests(unittest.TestCase):
             windows = PlatformAdapter("windows", home, "amd64")
             linux = PlatformAdapter("linux", home, "x86_64")
             self.assertEqual(windows.agent_skill_dirs()["codex"], home / ".agents" / "skills")
-            self.assertEqual(windows.agent_skill_dirs()["lux"], home / ".lux" / "skills")
+            self.assertEqual(windows.agent_skill_dirs()["lux"], home / ".lux_neo" / "skills")
             self.assertEqual(windows.default_deployment_type, "managed-copy")
             self.assertEqual(windows.file_deployment_type, "managed-copy-file")
             self.assertEqual(linux.default_deployment_type, "symlink")
@@ -39,13 +40,16 @@ class PlatformAdapterTests(unittest.TestCase):
             home = Path(directory) / "home"
             adapter = PlatformAdapter("windows", home, "amd64")
             self.assertTrue(
-                adapter.manages_skill_path("lux", home / ".lux" / "skills" / "demo.md")
+                adapter.manages_skill_path("lux", home / ".lux_neo" / "skills" / "demo.md")
+            )
+            self.assertTrue(
+                adapter.manages_skill_path("lux", home / ".lux" / "skills" / "legacy.md")
             )
             self.assertFalse(
-                adapter.manages_skill_path("lux", home / ".lux" / "outside" / "demo.md")
+                adapter.manages_skill_path("lux", home / ".lux_neo" / "outside" / "demo.md")
             )
             self.assertFalse(
-                adapter.manages_skill_path("unknown", home / ".lux" / "skills" / "demo.md")
+                adapter.manages_skill_path("unknown", home / ".lux_neo" / "skills" / "demo.md")
             )
 
     def test_desktop_paths_follow_platform_conventions(self):
@@ -113,12 +117,27 @@ class DeploymentTests(unittest.TestCase):
                 remove_deployment(row)
             self.assertTrue(destination.exists())
 
+    def test_managed_copy_removes_readonly_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            operation = self.make_operation(base, "managed-copy")
+            readonly = Path(operation["target"]) / ".git" / "objects" / "pack" / "demo.idx"
+            readonly.parent.mkdir(parents=True)
+            readonly.write_text("pack")
+            readonly.chmod(stat.S_IREAD)
+            row = apply_deployment(operation)
+            destination = Path(row["path"])
+            self.assertTrue((destination / ".git" / "objects" / "pack" / "demo.idx").is_file())
+
+            self.assertTrue(remove_deployment(row))
+            self.assertFalse(destination.exists())
+
     def test_managed_file_copy_detects_user_change_before_removal(self):
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
             operation = self.make_operation(base, "managed-copy-file")
             source = Path(operation["target"]) / "SKILL.md"
-            operation.update({"path": str(base / "home" / ".lux" / "skills" / "demo.md"), "target": str(source), "platform": "lux"})
+            operation.update({"path": str(base / "home" / ".lux_neo" / "skills" / "demo.md"), "target": str(source), "platform": "lux"})
             row = apply_deployment(operation)
             destination = Path(row["path"])
             self.assertTrue(destination.is_file())
@@ -141,7 +160,7 @@ class DeploymentTests(unittest.TestCase):
             base = Path(directory)
             operation = self.make_operation(base, "symlink-file")
             operation.update({
-                "path": str(base / "home" / ".lux" / "skills" / "demo.md"),
+                "path": str(base / "home" / ".lux_neo" / "skills" / "demo.md"),
                 "target": str(Path(operation["target"]) / "SKILL.md"),
                 "platform": "lux",
             })
@@ -203,7 +222,7 @@ class DeploymentTests(unittest.TestCase):
             outside = base / "outside"
             outside.mkdir()
             (outside / "keep.txt").write_text("keep")
-            manifest["targets"]["lux-skills"]["path"] = str(outside)
+            manifest["targets"]["lux-neo-skills"]["path"] = str(outside)
             write_data(manifest_path, manifest)
             restore_backup(vault, backup.name, assume_yes=True, adapter=adapter)
             self.assertEqual((outside / "keep.txt").read_text(), "keep")
@@ -228,6 +247,78 @@ class DeploymentTests(unittest.TestCase):
             )
             with self.assertRaises(VaultError):
                 install_plan(vault, ["base"], adapter)
+
+    def test_install_migrates_managed_lux_desktop_rows_to_lux_neo(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            root = base / "vault"
+            skill = root / "my-skills" / "demo"
+            skill.mkdir(parents=True)
+            (skill / "SKILL.md").write_text("---\nname: demo\ndescription: Demo.\n---\n")
+            (root / "profiles").mkdir()
+            (root / "annotations").mkdir()
+            write_data(root / "registry.yaml", {"schema_version": 1, "sources": {}})
+            write_data(root / "lock.yaml", {"schema_version": 1, "sources": {}})
+            write_data(root / "annotations" / "skills.yaml", {"schema_version": 1, "skills": {}})
+            write_data(
+                root / "profiles" / "lux.yaml",
+                {"schema_version": 1, "platform": "lux", "include": ["my/demo"]},
+            )
+            vault = Vault(root)
+            vault.scan()
+            adapter = PlatformAdapter("windows", base / "home", "amd64")
+            old_root = adapter.legacy_lux_skill_dir
+            legacy_rows = [
+                apply_deployment(
+                    {
+                        "path": str(old_root / "demo"),
+                        "target": str(skill),
+                        "skill_id": "my/demo",
+                        "platform": "lux",
+                        "component": "resources",
+                        "deployment_type": "managed-copy",
+                        "allowed_parent": str(old_root),
+                        "allowed_source_roots": [str(root)],
+                    }
+                ),
+                apply_deployment(
+                    {
+                        "path": str(old_root / "demo.md"),
+                        "target": str(skill / "SKILL.md"),
+                        "skill_id": "my/demo",
+                        "platform": "lux",
+                        "component": "skill",
+                        "deployment_type": "managed-copy-file",
+                        "allowed_parent": str(old_root),
+                        "allowed_source_roots": [str(root)],
+                    }
+                ),
+            ]
+            (old_root / "keep.txt").write_text("unmanaged")
+            write_data(
+                vault.state_dir / "install-state.json",
+                {"schema_version": 2, "deployments": legacy_rows, "links": legacy_rows},
+            )
+            with patch("pathlib.Path.home", return_value=adapter.home):
+                before = vault.resolve_profile_details(["lux"], "lux")
+            self.assertEqual(before["status"]["my/demo"]["state"], "saved-not-installed")
+
+            result = install(vault, ["lux"], assume_yes=True, adapter=adapter)
+
+            neo_root = adapter.agent_skill_dirs()["lux"]
+            self.assertTrue((neo_root / "demo.md").is_file())
+            self.assertTrue((neo_root / "demo" / "SKILL.md").is_file())
+            self.assertFalse((old_root / "demo.md").exists())
+            self.assertFalse((old_root / "demo").exists())
+            self.assertEqual((old_root / "keep.txt").read_text(), "unmanaged")
+            manifest = load_data(Path(result["backup"]) / "manifest.json")
+            self.assertIn("lux-skills", manifest["targets"])
+            self.assertIn("lux-neo-skills", manifest["targets"])
+            state = load_data(vault.state_dir / "install-state.json")
+            self.assertTrue(state["deployments"])
+            self.assertTrue(all(".lux_neo" in row["path"] for row in state["deployments"]))
+            post_migration = load_data(create_backup(vault, adapter) / "manifest.json")
+            self.assertNotIn("lux-skills", post_migration["targets"])
 
     def test_install_ignores_and_preserves_foreign_legacy_state(self):
         with tempfile.TemporaryDirectory() as directory:
